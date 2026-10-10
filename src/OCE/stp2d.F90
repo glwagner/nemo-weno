@@ -110,6 +110,7 @@ CONTAINS
       ENDIF
 
       ALLOCATE( sshe_rhs(jpi,jpj) , Ue_rhs(A2D(0)) , Ve_rhs(A2D(0)) , CdU_u(jpi,jpj) , CdU_v(jpi,jpj) )
+      IF( nn_bt_frc > 1 )   ALLOCATE( Ue_xtp(A2D(0)) , Ve_xtp(A2D(0)) )   ! advective part of the 2D RHS (extrapolated in dynspg_ts)
 
       !>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>!
       !                      RHS of barotropic momentum  Eq.                  !
@@ -143,7 +144,22 @@ CONTAINS
 #endif
          !                             !*  COR + MET  *!   Flux Form        : Coriolis + Metric Term  
          !                             !*     VOR     *!   Vector Inv. Form : Coriolis + relative Vorticity
-         CALL dyn_vor( kt,      Kbb, uu, vv, Krhs )
+         IF( nn_bt_frc > 1 .AND. n_dynadv /= np_LIN_dyn ) THEN   ! planetary vorticity (+ Stokes-Coriolis) first, then save
+            CALL dyn_vor( kt,      Kbb, uu, vv, Krhs, ncor )      ! the depth mean of the 2D RHS before its advective part
+            DO_2D( 0, 0, 0, 0 )
+               Ue_xtp(ji,jj) = - SUM( e3u_0(ji,jj,1:jpkm1)*uu(ji,jj,1:jpkm1,Krhs)*umask(ji,jj,1:jpkm1) ) * r1_hu_0(ji,jj)
+               Ve_xtp(ji,jj) = - SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
+            END_2D
+            CALL dyn_vor( kt,      Kbb, uu, vv, Krhs, nrvm )      ! relative vorticity (VIF) or metric term (FF)
+         ELSE
+            CALL dyn_vor( kt,      Kbb, uu, vv, Krhs )
+            IF( nn_bt_frc > 1 ) THEN                              ! linear dynamics: no advective forcing
+               DO_2D( 0, 0, 0, 0 )
+                  Ue_xtp(ji,jj) = - SUM( e3u_0(ji,jj,1:jpkm1)*uu(ji,jj,1:jpkm1,Krhs)*umask(ji,jj,1:jpkm1) ) * r1_hu_0(ji,jj)
+                  Ve_xtp(ji,jj) = - SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
+               END_2D
+            ENDIF
+         ENDIF
          !
          !                             !*  compute advection  *!   (only KEG + ZAD in Vector Inv. Form)
          IF( .NOT.lk_linssh ) THEN
@@ -186,6 +202,13 @@ CONTAINS
                Ve_rhs(ji,jj) = Ve_rhs(ji,jj) + SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
             END_2D
          END SELECT
+         !
+         IF( nn_bt_frc > 1 ) THEN          !* advective part of the 2D RHS (extrapolated in time in dynspg_ts)
+            DO_2D( 0, 0, 0, 0 )             !  VIF : RVO + KEG + ZAD   ;   FF : MET + ADV
+               Ue_xtp(ji,jj) = Ue_xtp(ji,jj) + Ue_rhs(ji,jj)
+               Ve_xtp(ji,jj) = Ve_xtp(ji,jj) + Ve_rhs(ji,jj)
+            END_2D
+         ENDIF
 
          !              !=====================================!
          !              !==  Dynamics: 2D momentum forcing  ==!
@@ -282,6 +305,7 @@ CONTAINS
                    
 
       DEALLOCATE( sshe_rhs , Ue_rhs , Ve_rhs , CdU_u , CdU_v )
+      IF( nn_bt_frc > 1 )   DEALLOCATE( Ue_xtp , Ve_xtp )
       !
       IF( ln_timing )   CALL timing_stop('stp_2D')
       !
