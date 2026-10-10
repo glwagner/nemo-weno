@@ -203,7 +203,7 @@ CONTAINS
       !
       NAMELIST/namdyn_spg/ ln_dynspg_exp    , ln_dynspg_ts,   &
       &                    ln_bt_auto       ,                 &
-      &                    nn_e , rn_bt_cmax, nn_bt_flt, rn_bt_alpha
+      &                    nn_e , rn_bt_cmax, nn_bt_flt, rn_bt_alpha, nn_bt_frc
       !!----------------------------------------------------------------------
       !
       IF(lwp) THEN
@@ -220,6 +220,7 @@ CONTAINS
          WRITE(numout,*) '   Namelist : namdyn_spg                    '
          WRITE(numout,*) '      Explicit free surface                  ln_dynspg_exp = ', ln_dynspg_exp
          WRITE(numout,*) '      Free surface with time splitting       ln_dynspg_ts  = ', ln_dynspg_ts
+         WRITE(numout,*) '         order of the extrapolation of the slow forcing   nn_bt_frc = ', nn_bt_frc
       ENDIF
       !                          ! Control of surface pressure gradient scheme options
                                      nspg =  np_NO    ;   ioptio = 0
@@ -233,6 +234,8 @@ CONTAINS
       !
       IF( ln_dynspg_exp )   &
            &   CALL ctl_stop( ' dynspg_exp not implemented with RK3 time-stepping ' )
+      IF( ln_dynspg_ts .AND. ( nn_bt_frc < 1 .OR. nn_bt_frc > 3 ) )   &
+           &   CALL ctl_stop( ' nn_bt_frc must be 1 (forcing at time n), 2 (AB2) or 3 (AB3)' )
       !
       IF(lwp) THEN
          WRITE(numout,*)

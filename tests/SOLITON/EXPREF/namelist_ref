@@ -1121,6 +1121,10 @@
       !                          !                     = 2 Boxcar over 2*nn_e  "    "
       !                          !                     = 3 Temporal dissipation (Demange 2019)
       rn_bt_alpha   =  0.           ! (if nn_bt_flt=3) ==> Temporal diffusion parameter (recommended values = 0.07-0.09)
+      nn_bt_frc     = 1          ! Slow forcing of the barotropic mode over [n,n+1]:
+      !                          !                     = 1 forcing at time n (1st order in time)
+      !                          !                     = 2 / 3 Adams-Bashforth 2 / 3 extrapolation (recommended: 3,
+      !                          !                         needed with weakly dissipative momentum advection)
       !
       ln_bt_auto    = .true.     ! Number of sub-step defined from:
          rn_bt_cmax   =  0.8        ! =T : the Maximum Courant Number allowed

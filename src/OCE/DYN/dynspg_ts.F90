@@ -26,6 +26,7 @@ MODULE dynspg_ts
    !!   dyn_spg_ts_init: initialisation of the time-splitting scheme
    !!   ts_wgt         : set time-splitting weights for temporal averaging (or not)
    !!   ts_rst         : read/write time-splitting fields in restart file
+   !!   ts_frc_ab      : Adams-Bashforth extrapolation of the slow forcing of the barotropic mode
    !!----------------------------------------------------------------------
    USE oce             ! ocean dynamics and tracers
    USE dom_oce         ! ocean space and time domain
@@ -85,6 +86,12 @@ MODULE dynspg_ts
    REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   sshe_rhs           ! RHS of ssh Eq.
    REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   Ue_rhs, Ve_rhs    ! RHS of barotropic velocity Eq.
    REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   CdU_u, CdU_v       ! top/bottom stress at u- & v-points
+   REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   Ue_xtp, Ve_xtp     ! part of (Ue_rhs,Ve_rhs) extrapolated in time
+
+   !                                   !* Adams-Bashforth extrapolation of the slow forcing (nn_bt_frc > 1)
+   INTEGER                                     ::   nfrc_ab = 0          ! number of previous forcings available (0, 1 or 2)
+   REAL(wp), ALLOCATABLE, SAVE, DIMENSION(:,:) ::   ufrc_b1, vfrc_b1     ! slow forcing at the previous time step
+   REAL(wp), ALLOCATABLE, SAVE, DIMENSION(:,:) ::   ufrc_b2, vfrc_b2     !  -      -    two time steps before
 
    REAL(wp) ::   r1_12 = 1._wp / 12._wp   ! local ratios
    REAL(wp) ::   r1_8  = 0.125_wp         !
@@ -157,6 +164,7 @@ CONTAINS
       REAL(wp), DIMENSION(jpi,jpj) :: zu_trd, zu_spg
       REAL(wp), DIMENSION(jpi,jpj) :: zv_trd, zv_spg
       REAL(wp), DIMENSION(A2D(0) ) :: zu_frc, zv_frc
+      REAL(wp), DIMENSION(A2D(0) ) :: zu_xtp, zv_xtp     ! extrapolated part of the slow forcing (nn_bt_frc > 1)
       REAL(wp), DIMENSION(jpi,jpj) :: zsshu_a, zhup2_e, zhtp2_e
       REAL(wp), DIMENSION(jpi,jpj) :: zsshv_a, zhvp2_e, zsshp2_e
       REAL(wp), DIMENSION(jpi,jpj) :: zCdU_u, zCdU_v   ! top/bottom stress at u- & v-points
@@ -255,6 +263,19 @@ CONTAINS
          zu_frc(ji,jj) = zu_frc(ji,jj) - zu_trd(ji,jj) * ssumask(ji,jj)
          zv_frc(ji,jj) = zv_frc(ji,jj) - zv_trd(ji,jj) * ssvmask(ji,jj)
       END_2D
+      !
+      !                                   !=  extrapolate the slow forcing over [n,n+1]  =!
+      IF( nn_bt_frc > 1 ) THEN                ! HPG + VOR + ADV without the 2D Coriolis, at time n
+         DO_2D( 0, 0, 0, 0 )
+            zu_xtp(ji,jj) = Ue_xtp(ji,jj) - zu_trd(ji,jj) * ssumask(ji,jj)
+            zv_xtp(ji,jj) = Ve_xtp(ji,jj) - zv_trd(ji,jj) * ssvmask(ji,jj)
+         END_2D
+         CALL ts_frc_ab( zu_xtp, zv_xtp )     ! ==> extrapolated over [n,n+1]
+         DO_2D( 0, 0, 0, 0 )                  ! replace its value at n by the extrapolated one
+            zu_frc(ji,jj) = zu_frc(ji,jj) + zu_xtp(ji,jj) - ( Ue_xtp(ji,jj) - zu_trd(ji,jj) * ssumask(ji,jj) )
+            zv_frc(ji,jj) = zv_frc(ji,jj) + zv_xtp(ji,jj) - ( Ve_xtp(ji,jj) - zv_trd(ji,jj) * ssvmask(ji,jj) )
+         END_2D
+      ENDIF
 
 
       !                                   != Fill boundary data arrays for AGRIF
@@ -815,6 +836,7 @@ CONTAINS
       !!----------------------------------------------------------------------
       INTEGER         , INTENT(in) ::   kt     ! ocean time-step
       CHARACTER(len=*), INTENT(in) ::   cdrw   ! "READ"/"WRITE" flag
+      REAL(wp) ::   zab                         ! local scalar
       !!----------------------------------------------------------------------
       !
       IF( TRIM(cdrw) == 'READ' ) THEN        ! Read/initialise 
@@ -832,6 +854,20 @@ CONTAINS
                   ll_cold_start = .TRUE. 
                ENDIF
             ENDIF
+            IF( nn_bt_frc > 1 ) THEN                    ! previous slow forcings (Adams-Bashforth)
+               IF( iom_varid( numror, 'ufrc_b1', ldstop = .FALSE. ) > 0 ) THEN
+                  CALL iom_get( numror, 'nfrc_ab', zab )
+                  nfrc_ab = MIN( NINT( zab ), nn_bt_frc - 1 )
+                  CALL iom_get( numror, jpdom_auto, 'ufrc_b1', ufrc_b1(:,:), cd_type = 'U', psgn = -1._wp )
+                  CALL iom_get( numror, jpdom_auto, 'vfrc_b1', vfrc_b1(:,:), cd_type = 'V', psgn = -1._wp )
+                  IF( nfrc_ab > 1 ) THEN
+                     CALL iom_get( numror, jpdom_auto, 'ufrc_b2', ufrc_b2(:,:), cd_type = 'U', psgn = -1._wp )
+                     CALL iom_get( numror, jpdom_auto, 'vfrc_b2', vfrc_b2(:,:), cd_type = 'V', psgn = -1._wp )
+                  ENDIF
+               ELSE                                     ! not in the restart: restart the Adams-Bashforth sequence
+                  nfrc_ab = 0
+               ENDIF
+            ENDIF
          ENDIF
          !
       ELSEIF( TRIM(cdrw) == 'WRITE' ) THEN   ! Create restart file
@@ -846,9 +882,72 @@ CONTAINS
             CALL iom_rstput( kt, nitrst, numrow, 'ub_e'     ,    ub_e(:,:) )
             CALL iom_rstput( kt, nitrst, numrow, 'vb_e'     ,    vb_e(:,:) )
          ENDIF
+         IF( nn_bt_frc > 1 ) THEN                       ! previous slow forcings (Adams-Bashforth)
+            CALL iom_rstput( kt, nitrst, numrow, 'nfrc_ab'  , REAL( nfrc_ab, wp ) )
+            CALL iom_rstput( kt, nitrst, numrow, 'ufrc_b1'  , ufrc_b1(:,:) )
+            CALL iom_rstput( kt, nitrst, numrow, 'vfrc_b1'  , vfrc_b1(:,:) )
+            CALL iom_rstput( kt, nitrst, numrow, 'ufrc_b2'  , ufrc_b2(:,:) )
+            CALL iom_rstput( kt, nitrst, numrow, 'vfrc_b2'  , vfrc_b2(:,:) )
+         ENDIF
       ENDIF
       !
    END SUBROUTINE ts_rst
+
+
+   SUBROUTINE ts_frc_ab( pu_frc, pv_frc )
+      !!---------------------------------------------------------------------
+      !!                   ***  ROUTINE ts_frc_ab  ***
+      !!
+      !! ** Purpose : Adams-Bashforth extrapolation of the slow forcing of the
+      !!              barotropic mode over the time step [n,n+1]
+      !!
+      !! ** Method  : The slow forcing of the depth averaged momentum (all the
+      !!      terms except the barotropic Coriolis and surface pressure gradient,
+      !!      which are sub-stepped) is computed at time n only, and is held
+      !!      constant over the barotropic sub-steps. With RK3 this is the only
+      !!      update of the depth averaged velocity, so that the slow terms are
+      !!      integrated forward in time (1st order), which is unstable for
+      !!      non-dissipative momentum advection schemes. Its non-dissipative part
+      !!      (pressure gradient, vorticity and advection terms, without the 2D
+      !!      Coriolis), is replaced by
+      !!          AB2:  F* = 3/2 F(n) - 1/2 F(n-1)
+      !!          AB3:  F* = ( 23 F(n) - 16 F(n-1) + 5 F(n-2) ) / 12
+      !!      (nn_bt_frc = 2 or 3), starting with lower orders when the previous
+      !!      forcings are not available (cold start). The dissipative terms
+      !!      (lateral viscosity, drag) and the external forcings are kept at
+      !!      time n: Adams-Bashforth is less stable than forward Euler for
+      !!      damping terms (AB3 is unstable for damping rates above 0.54/rDt).
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(A2D(0)), INTENT(inout) ::   pu_frc, pv_frc   ! non-dissipative slow forcing at n ==> extrapolated
+      !
+      INTEGER  ::   ji, jj        ! dummy loop indices
+      REAL(wp) ::   zu, zv        ! local scalars
+      !!----------------------------------------------------------------------
+      !
+      IF( nn_bt_frc == 3 .AND. nfrc_ab >= 2 ) THEN          !* 3rd order Adams-Bashforth
+         DO_2D( 0, 0, 0, 0 )
+            zu = pu_frc(ji,jj)   ;   zv = pv_frc(ji,jj)
+            pu_frc(ji,jj) = ( 23._wp * zu - 16._wp * ufrc_b1(ji,jj) + 5._wp * ufrc_b2(ji,jj) ) * r1_12
+            pv_frc(ji,jj) = ( 23._wp * zv - 16._wp * vfrc_b1(ji,jj) + 5._wp * vfrc_b2(ji,jj) ) * r1_12
+            ufrc_b2(ji,jj) = ufrc_b1(ji,jj)   ;   vfrc_b2(ji,jj) = vfrc_b1(ji,jj)
+            ufrc_b1(ji,jj) = zu               ;   vfrc_b1(ji,jj) = zv
+         END_2D
+      ELSEIF( nfrc_ab >= 1 ) THEN                           !* 2nd order Adams-Bashforth
+         DO_2D( 0, 0, 0, 0 )
+            zu = pu_frc(ji,jj)   ;   zv = pv_frc(ji,jj)
+            pu_frc(ji,jj) = 1.5_wp * zu - 0.5_wp * ufrc_b1(ji,jj)
+            pv_frc(ji,jj) = 1.5_wp * zv - 0.5_wp * vfrc_b1(ji,jj)
+            ufrc_b2(ji,jj) = ufrc_b1(ji,jj)   ;   vfrc_b2(ji,jj) = vfrc_b1(ji,jj)
+            ufrc_b1(ji,jj) = zu               ;   vfrc_b1(ji,jj) = zv
+         END_2D
+      ELSE                                                  !* cold start: forcing at time n
+         DO_2D( 0, 0, 0, 0 )
+            ufrc_b1(ji,jj) = pu_frc(ji,jj)    ;   vfrc_b1(ji,jj) = pv_frc(ji,jj)
+         END_2D
+      ENDIF
+      nfrc_ab = MIN( nfrc_ab + 1, nn_bt_frc - 1 )
+      !
+   END SUBROUTINE ts_frc_ab
 
 
    SUBROUTINE dyn_spg_ts_init
@@ -939,6 +1038,14 @@ CONTAINS
       !
       !                             ! Allocate time-splitting arrays
       IF( dyn_spg_ts_alloc() /= 0    )   CALL ctl_stop('STOP', 'dyn_spg_init: failed to allocate dynspg_ts  arrays' )
+      !
+      IF( nn_bt_frc > 1 ) THEN      ! previous slow forcings for the Adams-Bashforth extrapolation
+         ALLOCATE( ufrc_b1(jpi,jpj), vfrc_b1(jpi,jpj), ufrc_b2(jpi,jpj), vfrc_b2(jpi,jpj) )
+         ufrc_b1(:,:) = 0._wp   ;   vfrc_b1(:,:) = 0._wp   ;   ufrc_b2(:,:) = 0._wp   ;   vfrc_b2(:,:) = 0._wp
+         nfrc_ab = 0
+         IF(lwp) WRITE(numout,*)
+         IF(lwp) WRITE(numout,*) '     Slow forcing of the barotropic mode extrapolated with Adams-Bashforth of order ', nn_bt_frc
+      ENDIF
       !
       ! init some arrays for debug sette
       ssha_e(:,:) = 0._wp
