@@ -153,16 +153,23 @@ CONTAINS
          ENDIF
          !
          CALL wzv    ( kt, Kbb, Kbb, Kaa , uu(:,:,:,Kbb), vv(:,:,:,Kbb), ww, np_velocity )  ! ww guess at Kbb (n)
+         !                                                        ! ww needed over 2 halo points (no tiling with ln_dynadv_weno)
+         IF( ln_dynadv_weno )   CALL lbc_lnk( 'stp_2D', ww, 'T', 1._wp )
          !
          !                             !*  KEG + ZAD  *!   Vector Inv. Form : KE gradient + vertical advection
          !                             !*     ADV     *!   Flux Form        : flux form advection
          SELECT CASE( n_dynadv )
          !
-         CASE( np_VEC_c2  )               != 2nd order Vector Form =!                       ==>> 3D RHS
+         CASE( np_VEC_c2  )               != Vector Form =!                                 ==>> 3D RHS
             !
-            CALL dyn_keg( kt, nn_dynkeg, Kbb, uu, vv, Krhs )      !- horizontal Gradient of KE
-            !
-            CALL dyn_zad( kt, Kbb, uu, vv, Krhs )                 !- vertical advection
+            IF( ln_dynadv_weno ) THEN        != WENO upwind reconstructions =!
+               CALL dyn_keg_weno( kt, nn_dynadv_weno, Kbb, uu, vv, Krhs )   !- horizontal Gradient of KE
+               CALL dyn_zad_weno( kt, nn_dynadv_weno, Kbb, uu, vv, Krhs )   !- vertical advection
+            ELSE                             != 2nd order centered schemes =!
+               CALL dyn_keg( kt, nn_dynkeg, Kbb, uu, vv, Krhs )      !- horizontal Gradient of KE
+               !
+               CALL dyn_zad( kt, Kbb, uu, vv, Krhs )                 !- vertical advection
+            ENDIF
             !
          CASE( np_FLX_c2  )               !=  2n order Flux Form =!   (CEN2)                ==>> 2D RHS only
             !

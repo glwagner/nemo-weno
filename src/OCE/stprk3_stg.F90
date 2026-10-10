@@ -297,6 +297,8 @@ CONTAINS
                !                                      ! ww / wi Partition at stage 3 only
                IF( ln_zad_Aimp .AND. kstg == 3 )   CALL wAimp( kstp, Kmm, uu(:,:,:,Kmm), vv(:,:,:,Kmm), ww, wi, np_velocity, & 
                                                         &     r_stb_thres_dyn_v, r_stb_cstra_dyn_v, r_stb_cstra_dyn_h )
+               !                                      ! ww needed over 2 halo points (no tiling with ln_dynadv_weno)
+               IF( ln_dynadv_weno )   CALL lbc_lnk( 'stp_RK3_stg', ww, 'T', 1._wp )
                !
             ENDIF
          ELSE                                     !* Flux Form : set ww, wi at 3rd stage and zFw

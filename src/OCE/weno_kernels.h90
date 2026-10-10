@@ -11,6 +11,9 @@
    !!   weno5_wb, weno3_wb     : reconstruction with given smoothness indicators
    !!   weno_vor5, weno_vor3   : upwind reconstruction of the relative vorticity
    !!                            with velocity-based smoothness (vector invariant form)
+   !!   weno_up5, weno_up3     : upwind reconstruction of a cell quantity with the
+   !!                            smoothness of another one (vector invariant form)
+   !!   cen4                   : 4th order centered interpolation
    !!----------------------------------------------------------------------
 
    PURE FUNCTION weno5_face( pt_m2, pt_m1, pt_0, pt_p1, pt_p2, pm5, pm3 ) RESULT( pt_face )
@@ -270,3 +273,90 @@
       ENDIF
    END FUNCTION weno_vor3
 
+
+   PURE FUNCTION weno_up5( pt, ps, pmsk, pvel ) RESULT( pt_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno_up5  ***
+      !!
+      !! ** Purpose :   upwind reconstruction of a cell quantity at the point
+      !!              between the cells pt(3) and pt(4), from the six cells
+      !!              ordered along the reconstruction direction (5th order
+      !!              WENO, or lower near land)
+      !!
+      !! ** Method  :   The stencil is biased towards the side the velocity
+      !!      pvel comes from: pt(3) is upstream for pvel > 0, pt(4) for pvel < 0.
+      !!      The WENO weights are computed from the smoothness of ps, given at
+      !!      the same cells (ps = pt for the usual WENO reconstruction, or
+      !!      another quantity as in the FunctionStencil of Oceananigans).
+      !!        The order is 5 if the six cells are in the ocean (pmsk = 1),
+      !!      3 if the four central ones are, and 1 (upstream value) otherwise.
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pt          ! reconstructed quantity at the cells
+      REAL(wp), DIMENSION(6), INTENT(in) ::   ps          ! quantity used for the smoothness indicators
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pmsk        ! =1 at ocean cells
+      REAL(wp)              , INTENT(in) ::   pvel        ! velocity at the reconstructed point
+      REAL(wp)                           ::   pt_rec      ! reconstructed value
+      !
+      INTEGER  ::   i1, i2, i3, i4, i5   ! stencil indices, from upstream to downstream
+      REAL(wp) ::   zb0, zb1, zb2        ! smoothness indicators
+      !!----------------------------------------------------------------------
+      IF( pvel > 0._wp ) THEN   ;   i1 = 1 ; i2 = 2 ; i3 = 3 ; i4 = 4 ; i5 = 5
+      ELSE                      ;   i1 = 6 ; i2 = 5 ; i3 = 4 ; i4 = 3 ; i5 = 2
+      ENDIF
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         CALL weno5_beta( ps(i1), ps(i2), ps(i3), ps(i4), ps(i5), zb0, zb1, zb2 )
+         pt_rec = weno5_wb( pt(i1), pt(i2), pt(i3), pt(i4), pt(i5), zb0, zb1, zb2 )
+      ELSE
+         pt_rec = weno_up3( pt(2:5), ps(2:5), pmsk(2:5), pvel )
+      ENDIF
+   END FUNCTION weno_up5
+
+
+   PURE FUNCTION weno_up3( pt, ps, pmsk, pvel ) RESULT( pt_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno_up3  ***
+      !!
+      !! ** Purpose :   as weno_up5 at 3rd order, from the four cells that
+      !!              surround the reconstructed point (between pt(2) and pt(3))
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pt          ! reconstructed quantity at the cells
+      REAL(wp), DIMENSION(4), INTENT(in) ::   ps          ! quantity used for the smoothness indicators
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pmsk        ! =1 at ocean cells
+      REAL(wp)              , INTENT(in) ::   pvel        ! velocity at the reconstructed point
+      REAL(wp)                           ::   pt_rec      ! reconstructed value
+      !
+      INTEGER  ::   i1, i2, i3    ! stencil indices, from upstream to downstream
+      REAL(wp) ::   zb0, zb1      ! smoothness indicators
+      !!----------------------------------------------------------------------
+      IF( pvel > 0._wp ) THEN   ;   i1 = 1 ; i2 = 2 ; i3 = 3
+      ELSE                      ;   i1 = 4 ; i2 = 3 ; i3 = 2
+      ENDIF
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         CALL weno3_beta( ps(i1), ps(i2), ps(i3), zb0, zb1 )
+         pt_rec = weno3_wb( pt(i1), pt(i2), pt(i3), zb0, zb1 )
+      ELSE
+         pt_rec = pt(i2)                                 ! 1st order upstream
+      ENDIF
+   END FUNCTION weno_up3
+
+
+   PURE FUNCTION cen4( pt, pmsk ) RESULT( pt_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION cen4  ***
+      !!
+      !! ** Purpose :   4th order centered interpolation at the point between
+      !!              pt(2) and pt(3) (Oceananigans Centered(order=4)), reduced
+      !!              to 2nd order if one of the four points is not active (pmsk)
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pt          ! interpolated quantity
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pmsk        ! =1 at active points
+      REAL(wp)                           ::   pt_rec      ! interpolated value
+      !
+      REAL(wp), PARAMETER ::   zr1_12 = 1._wp / 12._wp
+      !!----------------------------------------------------------------------
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         pt_rec = (  7._wp * ( pt(2) + pt(3) ) - ( pt(1) + pt(4) )  ) * zr1_12
+      ELSE
+         pt_rec = 0.5_wp * ( pt(2) + pt(3) )
+      ENDIF
+   END FUNCTION cen4

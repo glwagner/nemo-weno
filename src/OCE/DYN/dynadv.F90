@@ -8,6 +8,7 @@ MODULE dynadv
    !!            3.6  !  2015-05  (N. Ducousso, G. Madec)  add Hollingsworth scheme as an option 
    !!            4.0  !  2017-07  (G. Madec)  add a linear dynamics option
    !!            4.5  !  2022-06  (S. Techene, G, Madec) refactorization to reduce local memory usage
+   !!            5.x  !  2026-10  (G. Wagner)  WENO upwind vector invariant form (ln_dynadv_weno), following Oceananigans.jl
    !!----------------------------------------------------------------------
 
    !!----------------------------------------------------------------------
@@ -20,6 +21,7 @@ MODULE dynadv
    USE dynkeg         ! kinetic energy gradient          (dyn_keg      routine)
    USE dynzad         ! vertical advection               (dyn_zad      routine)
    USE zdf_oce,  ONLY : ln_zad_Aimp
+   USE sbc_oce,  ONLY : ln_vortex_force
    !
    USE in_out_manager ! I/O manager
    USE lib_mpp        ! MPP library
@@ -35,6 +37,8 @@ MODULE dynadv
    LOGICAL, PUBLIC ::   ln_dynadv_OFF   !: linear dynamics (no momentum advection)
    LOGICAL, PUBLIC ::   ln_dynadv_vec   !: vector form
    INTEGER, PUBLIC ::      nn_dynkeg       !: scheme of grad(KE): =0 C2 ; =1 Hollingsworth
+   LOGICAL, PUBLIC ::      ln_dynadv_weno  !: vector form - WENO upwind grad(KE) and vertical advection
+   INTEGER, PUBLIC ::      nn_dynadv_weno  !: order of the WENO reconstructions (=3/5)
    LOGICAL, PUBLIC ::   ln_dynadv_cen2  !: flux form - 2nd order centered scheme flag
    LOGICAL, PUBLIC ::   ln_dynadv_up3   !: flux form - 3rd order upstream scheme flag
 
@@ -78,9 +82,13 @@ CONTAINS
       !
       SELECT CASE( n_dynadv )    !==  compute advection trend and add it to general trend  ==!
       CASE( np_VEC_c2  )                                                         != vector form =!
-         !                                                                             !* horizontal gradient of kinetic energy
-         CALL dyn_keg     ( kt, nn_dynkeg     , Kmm, puu, pvv, Krhs )
-         CALL dyn_zad     ( kt                , Kmm, puu, pvv, Krhs )                  !* vertical advection
+         IF( ln_dynadv_weno ) THEN                                                     !* WENO upwind reconstructions
+            CALL dyn_keg_weno( kt, nn_dynadv_weno, Kmm, puu, pvv, Krhs )                  !- horizontal gradient of kinetic energy
+            CALL dyn_zad_weno( kt, nn_dynadv_weno, Kmm, puu, pvv, Krhs )                  !- vertical advection
+         ELSE                                                                          !* 2nd order centered schemes
+            CALL dyn_keg     ( kt, nn_dynkeg     , Kmm, puu, pvv, Krhs )                  !- horizontal gradient of kinetic energy
+            CALL dyn_zad     ( kt                , Kmm, puu, pvv, Krhs )                  !- vertical advection
+         ENDIF
          !
       CASE( np_FLX_c2  )                                                         !=  flux form  =!
          CALL dyn_adv_cen2( kt                , Kmm, puu, pvv, Krhs, pau, pav, paw )   !* 2nd order centered scheme
@@ -104,7 +112,8 @@ CONTAINS
       !!----------------------------------------------------------------------
       INTEGER ::   ioptio, ios, istat1, istat2   ! Local integer
       !
-      NAMELIST/namdyn_adv/ ln_dynadv_OFF, ln_dynadv_vec, nn_dynkeg, ln_dynadv_cen2, ln_dynadv_up3
+      NAMELIST/namdyn_adv/ ln_dynadv_OFF, ln_dynadv_vec, nn_dynkeg, ln_dynadv_weno, nn_dynadv_weno,   &
+         &                 ln_dynadv_cen2, ln_dynadv_up3
       !!----------------------------------------------------------------------
       !
       IF(lwp) THEN
@@ -122,6 +131,8 @@ CONTAINS
          WRITE(numout,*) '      linear dynamics : no momentum advection          ln_dynadv_OFF  = ', ln_dynadv_OFF
          WRITE(numout,*) '      Vector form: 2nd order centered scheme           ln_dynadv_vec  = ', ln_dynadv_vec
          WRITE(numout,*) '         with Hollingsworth scheme (=1) or not (=0)       nn_dynkeg   = ', nn_dynkeg
+         WRITE(numout,*) '         WENO upwind grad(KE) and vertical advection   ln_dynadv_weno = ', ln_dynadv_weno
+         WRITE(numout,*) '            order of the WENO reconstructions          nn_dynadv_weno = ', nn_dynadv_weno
          WRITE(numout,*) '      flux form: 2nd order centred scheme              ln_dynadv_cen2 = ', ln_dynadv_cen2
          WRITE(numout,*) '                 3rd order UBS scheme                  ln_dynadv_up3  = ', ln_dynadv_up3
       ENDIF
@@ -134,6 +145,14 @@ CONTAINS
 
       IF( ioptio /= 1 )   CALL ctl_stop( 'choose ONE and only ONE advection scheme' )
       IF( nn_dynkeg /= nkeg_C2 .AND. nn_dynkeg /= nkeg_HW )   CALL ctl_stop( 'KEG scheme wrong value of nn_dynkeg' )
+      IF( ln_dynadv_weno ) THEN       ! WENO upwind vector form (Oceananigans WENOVectorInvariant, with ln_dynvor_weno)
+         IF( .NOT.ln_dynadv_vec )   CALL ctl_stop( 'dyn_adv_init: ln_dynadv_weno requires the vector form (ln_dynadv_vec = T)' )
+         IF( nn_dynadv_weno /= 3 .AND. nn_dynadv_weno /= 5 )   CALL ctl_stop( 'dyn_adv_init: nn_dynadv_weno must be 3 or 5' )
+         IF( nn_hls < ( nn_dynadv_weno + 1 ) / 2 )   &
+            &   CALL ctl_stop( 'dyn_adv_init: 5th order WENO momentum advection requires nn_hls = 3 (namelist nammpp)' )
+         IF( ln_tile )   CALL ctl_stop( 'dyn_adv_init: ln_dynadv_weno is not compatible with tiling (ln_tile = T)' )
+         IF( ln_vortex_force )   CALL ctl_stop( 'dyn_adv_init: ln_dynadv_weno is not compatible with the vortex force (ln_vortex_force = T)' )
+      ENDIF
 #if defined key_qcoTest_FluxForm
       IF( ln_dynadv_vec  ) THEN CALL ctl_stop( 'STOP', 'key_qcoTest_FluxForm requires flux form advection' )
 #endif
@@ -143,8 +162,12 @@ CONTAINS
          SELECT CASE( n_dynadv )
          CASE( np_LIN_dyn )   ;   WRITE(numout,*) '   ==>>>   linear dynamics : no momentum advection used'
          CASE( np_VEC_c2  )   ;   WRITE(numout,*) '   ==>>>   vector form : keg + zad + vor is used' 
-            IF( nn_dynkeg == nkeg_C2  )   WRITE(numout,*) '              with Centered standard keg scheme'
-            IF( nn_dynkeg == nkeg_HW  )   WRITE(numout,*) '              with Hollingsworth keg scheme'
+            IF( ln_dynadv_weno ) THEN
+               WRITE(numout,*) '              with WENO upwind keg and zad schemes of order ', nn_dynadv_weno
+            ELSE
+               IF( nn_dynkeg == nkeg_C2  )   WRITE(numout,*) '              with Centered standard keg scheme'
+               IF( nn_dynkeg == nkeg_HW  )   WRITE(numout,*) '              with Hollingsworth keg scheme'
+            ENDIF
          CASE( np_FLX_c2  )   ;   WRITE(numout,*) '   ==>>>   flux form   : 2nd order scheme is used'
          CASE( np_FLX_up3 )   ;   WRITE(numout,*) '   ==>>>   flux form   : 3rd order scheme is used'
          END SELECT
