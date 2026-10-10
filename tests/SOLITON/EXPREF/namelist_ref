@@ -1085,6 +1085,9 @@
    ln_dynadv_OFF = .false. !  linear dynamics (no momentum advection)
    ln_dynadv_vec = .false. !  vector form - 2nd centered scheme
      nn_dynkeg     = 0        ! grad(KE) scheme: =0   C2  ;  =1   Hollingsworth correction
+     ln_dynadv_weno = .false. ! WENO upwind grad(KE) and vertical advection (Oceananigans WENOVectorInvariant,
+     !                        ! with ln_dynvor_weno for the relative vorticity); nn_dynkeg is then not used
+        nn_dynadv_weno = 5    ! =3/5, order of the WENO reconstructions (5th order requires nn_hls = 3)
    ln_dynadv_cen2 = .false. !  flux form - 2nd order centered scheme
    ln_dynadv_up3 = .false. !  flux form - 3rd order UBS      scheme
 /
@@ -1101,6 +1104,9 @@
    !
    nn_e3f_typ = 0          !  type of e3f (EEN, ENE, ENS, MIX only)  =0  e3f = mi(mj(e3t))/4
    !                       !                                         =1  e3f = mi(mj(e3t))/mi(mj( tmask))
+   ln_dynvor_weno = .false. !  relative vorticity by WENO upwind reconstruction (vector form only);
+   !                        !  the scheme chosen above then computes the Coriolis term only
+      nn_dynvor_weno = 5    !  =3/5, order of the WENO reconstruction (5th order requires nn_hls = 3)
 /
 !-----------------------------------------------------------------------
 &namdyn_hpg    !   Hydrostatic pressure gradient option                 (default: NO selection)

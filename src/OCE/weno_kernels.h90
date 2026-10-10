@@ -1,0 +1,362 @@
+   !!======================================================================
+   !!                     ***  weno_kernels.h90  ***
+   !! Weighted Essentially Non-Oscillatory (WENO) reconstructions, included in the
+   !! CONTAINS part of the modules that use them (so that they can be inlined)
+   !!======================================================================
+   !! History :  5.x  !  2026-10  (G. Wagner)  3rd and 5th order WENO-Z, following Oceananigans.jl
+   !!----------------------------------------------------------------------
+   !!   weno5_face    : 5th order WENO-Z reconstruction with order reduction (tracers)
+   !!   weno5, weno3  : 5th / 3rd order WENO-Z reconstruction at a face
+   !!   weno5_beta, weno3_beta : smoothness indicators of the candidate stencils
+   !!   weno5_wb, weno3_wb     : reconstruction with given smoothness indicators
+   !!   weno_vor5, weno_vor3   : upwind reconstruction of the relative vorticity
+   !!                            with velocity-based smoothness (vector invariant form)
+   !!   weno_up5, weno_up3     : upwind reconstruction of a cell quantity with the
+   !!                            smoothness of another one (vector invariant form)
+   !!   cen4                   : 4th order centered interpolation
+   !!----------------------------------------------------------------------
+
+   PURE FUNCTION weno5_face( pt_m2, pt_m1, pt_0, pt_p1, pt_p2, pm5, pm3 ) RESULT( pt_face )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno5_face  ***
+      !!
+      !! ** Purpose :   tracer value at the face between the upstream cell (pt_0)
+      !!              and the downstream cell (pt_p1), at the highest order allowed
+      !!              by the mask of the stencil: 5th order WENO (pm5 = 1), 3rd order
+      !!              WENO (pm3 = 1), or 1st order upstream
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in) ::   pt_m2, pt_m1, pt_0, pt_p1, pt_p2   ! stencil, from upstream to downstream
+      REAL(wp), INTENT(in) ::   pm5, pm3                           ! =1 if the 5th / 3rd order stencil is in the ocean
+      REAL(wp)             ::   pt_face                            ! reconstructed value at the face
+      !!----------------------------------------------------------------------
+      pt_face = MERGE( weno5( pt_m2, pt_m1, pt_0, pt_p1, pt_p2 ),                &
+         &             MERGE( weno3( pt_m1, pt_0, pt_p1 ), pt_0, pm3 > 0.5_wp ), pm5 > 0.5_wp )
+   END FUNCTION weno5_face
+
+
+   PURE FUNCTION weno5( pt_m2, pt_m1, pt_0, pt_p1, pt_p2 ) RESULT( pt_face )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno5  ***
+      !!
+      !! ** Purpose :   5th order WENO-Z reconstruction at the face between the
+      !!              upstream cell (pt_0) and the downstream cell (pt_p1)
+      !!
+      !! ** Method  :   The three candidate stencils are (pt_0, pt_p1, pt_p2),
+      !!      (pt_m1, pt_0, pt_p1) and (pt_m2, pt_m1, pt_0), with optimal weights
+      !!      3/10, 3/5 and 1/10. Written with the differences
+      !!      d1 = pt_m1 - pt_m2, d2 = pt_0 - pt_m1, d3 = pt_p1 - pt_0, d4 = pt_p2 - pt_p1,
+      !!      the stencil reconstructions relative to the upstream value are
+      !!          p0 = 2/3 d3 - 1/6 d4 ,  p1 = 1/6 d2 + 1/3 d3 ,  p2 = 5/6 d2 - 1/3 d1
+      !!      and the smoothness indicators are 3 times those of Jiang & Shu (1996)
+      !!      (as in Oceananigans), e.g.  beta_0 = 13/4 (d4 - d3)^2 + 3/4 (d4 - 3 d3)^2.
+      !!      The WENO-Z weights are
+      !!          alpha_r = C_r * ( 1 + ( tau / ( beta_r + eps ) )^2 ),  tau = |beta_0 - beta_2|
+      !!      and  pt_face = pt_0 + sum_r( alpha_r p_r ) / sum_r( alpha_r ).
+      !!      This is Oceananigans' WENO(order=5). The left- and right-biased
+      !!      reconstructions are the same function applied to the mirrored stencil,
+      !!      so that the scheme is symmetric to round-off.
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in) ::   pt_m2, pt_m1, pt_0, pt_p1, pt_p2   ! stencil, from upstream to downstream
+      REAL(wp)             ::   pt_face                            ! reconstructed value at the face
+      !
+      REAL(wp) ::   zd1, zd2, zd3, zd4, zb0, zb1, zb2, ztau, za0, za1, za2   ! local scalars
+      REAL(wp), PARAMETER ::   zeps = 1.e-8_wp                          ! regularisation of the smoothness indicators
+      REAL(wp), PARAMETER ::   zC0 = 3._wp/10._wp, zC1 = 3._wp/5._wp, zC2 = 1._wp/10._wp   ! optimal weights
+      !!----------------------------------------------------------------------
+      zd1 = pt_m1 - pt_m2                     ! differences spanned by the stencils
+      zd2 = pt_0  - pt_m1
+      zd3 = pt_p1 - pt_0
+      zd4 = pt_p2 - pt_p1
+      zb0 = 3.25_wp * ( zd4 - zd3 )**2 + 0.75_wp * ( zd4 - 3._wp * zd3 )**2   ! smoothness indicators
+      zb1 = 3.25_wp * ( zd3 - zd2 )**2 + 0.75_wp * ( zd2 +         zd3 )**2
+      zb2 = 3.25_wp * ( zd2 - zd1 )**2 + 0.75_wp * ( 3._wp * zd2 - zd1 )**2
+      ztau = ABS( zb0 - zb2 )                 ! global smoothness indicator
+      za0 = zC0 * ( 1._wp + ( ztau / ( zb0 + zeps ) )**2 )
+      za1 = zC1 * ( 1._wp + ( ztau / ( zb1 + zeps ) )**2 )
+      za2 = zC2 * ( 1._wp + ( ztau / ( zb2 + zeps ) )**2 )
+      pt_face = pt_0 + (  za0 * ( 2._wp * zd3 - 0.5_wp * zd4 ) / 3._wp             &
+         &              + za1 * ( 0.5_wp * zd2 + zd3 ) / 3._wp                     &
+         &              + za2 * ( 2.5_wp * zd2 - zd1 ) / 3._wp  ) / ( za0 + za1 + za2 )
+   END FUNCTION weno5
+
+
+   PURE FUNCTION weno3( pt_m, pt_0, pt_p ) RESULT( pt_face )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno3  ***
+      !!
+      !! ** Purpose :   3rd order WENO-Z reconstruction at the face between the
+      !!              upstream cell (pt_0) and the downstream cell (pt_p)
+      !!
+      !! ** Method  :   The two candidate stencils are (pt_0, pt_p) and (pt_m, pt_0),
+      !!      with optimal weights 2/3 and 1/3 and smoothness indicators equal to
+      !!      the square of their difference. The WENO-Z weights are
+      !!          alpha_r = C_r * ( 1 + ( tau / ( beta_r + eps ) )^2 ),  tau = |beta_0 - beta_1|
+      !!      The reconstruction is written relative to the upstream value,
+      !!          pt_face = pt_0 + 1/2 * ( w_0 * (pt_p - pt_0) + w_1 * (pt_0 - pt_m) )
+      !!      This is Oceananigans' WENO(order=3). The left- and right-biased
+      !!      reconstructions are the same function applied to the mirrored stencil,
+      !!      so that the scheme is symmetric to round-off.
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in) ::   pt_m      ! 2nd upstream value
+      REAL(wp), INTENT(in) ::   pt_0      ! upstream value
+      REAL(wp), INTENT(in) ::   pt_p      ! downstream value
+      REAL(wp)             ::   pt_face   ! reconstructed value at the face
+      !
+      REAL(wp) ::   zd0, zd1, zb0, zb1, ztau, za0, za1   ! local scalars
+      REAL(wp), PARAMETER ::   zeps = 1.e-8_wp                          ! regularisation of the smoothness indicators
+      REAL(wp), PARAMETER ::   zC0 = 2._wp/3._wp, zC1 = 1._wp/3._wp      ! optimal weights
+      !!----------------------------------------------------------------------
+      zd0 = pt_p - pt_0                       ! differences spanned by each stencil
+      zd1 = pt_0 - pt_m
+      zb0 = zd0 * zd0                         ! smoothness indicators
+      zb1 = zd1 * zd1
+      ztau = ABS( zb0 - zb1 )                 ! global smoothness indicator
+      za0 = zC0 * ( 1._wp + ( ztau / ( zb0 + zeps ) )**2 )
+      za1 = zC1 * ( 1._wp + ( ztau / ( zb1 + zeps ) )**2 )
+      pt_face = pt_0 + 0.5_wp * ( za0 * zd0 + za1 * zd1 ) / ( za0 + za1 )
+   END FUNCTION weno3
+
+
+   PURE SUBROUTINE weno5_beta( pt_m2, pt_m1, pt_0, pt_p1, pt_p2, pb0, pb1, pb2 )
+      !!----------------------------------------------------------------------
+      !!                  ***  ROUTINE weno5_beta  ***
+      !!
+      !! ** Purpose :   smoothness indicators of the three stencils of weno5
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in ) ::   pt_m2, pt_m1, pt_0, pt_p1, pt_p2   ! stencil, from upstream to downstream
+      REAL(wp), INTENT(out) ::   pb0, pb1, pb2                      ! smoothness indicators
+      !
+      REAL(wp) ::   zd1, zd2, zd3, zd4   ! local scalars
+      !!----------------------------------------------------------------------
+      zd1 = pt_m1 - pt_m2
+      zd2 = pt_0  - pt_m1
+      zd3 = pt_p1 - pt_0
+      zd4 = pt_p2 - pt_p1
+      pb0 = 3.25_wp * ( zd4 - zd3 )**2 + 0.75_wp * ( zd4 - 3._wp * zd3 )**2
+      pb1 = 3.25_wp * ( zd3 - zd2 )**2 + 0.75_wp * ( zd2 +         zd3 )**2
+      pb2 = 3.25_wp * ( zd2 - zd1 )**2 + 0.75_wp * ( 3._wp * zd2 - zd1 )**2
+   END SUBROUTINE weno5_beta
+
+
+   PURE SUBROUTINE weno3_beta( pt_m, pt_0, pt_p, pb0, pb1 )
+      !!----------------------------------------------------------------------
+      !!                  ***  ROUTINE weno3_beta  ***
+      !!
+      !! ** Purpose :   smoothness indicators of the two stencils of weno3
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in ) ::   pt_m, pt_0, pt_p   ! stencil, from upstream to downstream
+      REAL(wp), INTENT(out) ::   pb0, pb1           ! smoothness indicators
+      !!----------------------------------------------------------------------
+      pb0 = ( pt_p - pt_0 )**2
+      pb1 = ( pt_0 - pt_m )**2
+   END SUBROUTINE weno3_beta
+
+
+   PURE FUNCTION weno5_wb( pt_m2, pt_m1, pt_0, pt_p1, pt_p2, pb0, pb1, pb2 ) RESULT( pt_face )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno5_wb  ***
+      !!
+      !! ** Purpose :   weno5 reconstruction with WENO-Z weights computed from
+      !!              given smoothness indicators (pb0, pb1, pb2)
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in) ::   pt_m2, pt_m1, pt_0, pt_p1, pt_p2   ! stencil, from upstream to downstream
+      REAL(wp), INTENT(in) ::   pb0, pb1, pb2                      ! smoothness indicators
+      REAL(wp)             ::   pt_face                            ! reconstructed value at the face
+      !
+      REAL(wp) ::   zd1, zd2, zd3, zd4, ztau, za0, za1, za2   ! local scalars
+      REAL(wp), PARAMETER ::   zeps = 1.e-8_wp                          ! regularisation of the smoothness indicators
+      REAL(wp), PARAMETER ::   zC0 = 3._wp/10._wp, zC1 = 3._wp/5._wp, zC2 = 1._wp/10._wp   ! optimal weights
+      !!----------------------------------------------------------------------
+      zd1 = pt_m1 - pt_m2
+      zd2 = pt_0  - pt_m1
+      zd3 = pt_p1 - pt_0
+      zd4 = pt_p2 - pt_p1
+      ztau = ABS( pb0 - pb2 )
+      za0 = zC0 * ( 1._wp + ( ztau / ( pb0 + zeps ) )**2 )
+      za1 = zC1 * ( 1._wp + ( ztau / ( pb1 + zeps ) )**2 )
+      za2 = zC2 * ( 1._wp + ( ztau / ( pb2 + zeps ) )**2 )
+      pt_face = pt_0 + (  za0 * ( 2._wp * zd3 - 0.5_wp * zd4 ) / 3._wp             &
+         &              + za1 * ( 0.5_wp * zd2 + zd3 ) / 3._wp                     &
+         &              + za2 * ( 2.5_wp * zd2 - zd1 ) / 3._wp  ) / ( za0 + za1 + za2 )
+   END FUNCTION weno5_wb
+
+
+   PURE FUNCTION weno3_wb( pt_m, pt_0, pt_p, pb0, pb1 ) RESULT( pt_face )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno3_wb  ***
+      !!
+      !! ** Purpose :   weno3 reconstruction with WENO-Z weights computed from
+      !!              given smoothness indicators (pb0, pb1)
+      !!----------------------------------------------------------------------
+      REAL(wp), INTENT(in) ::   pt_m, pt_0, pt_p   ! stencil, from upstream to downstream
+      REAL(wp), INTENT(in) ::   pb0, pb1           ! smoothness indicators
+      REAL(wp)             ::   pt_face            ! reconstructed value at the face
+      !
+      REAL(wp) ::   ztau, za0, za1   ! local scalars
+      REAL(wp), PARAMETER ::   zeps = 1.e-8_wp                          ! regularisation of the smoothness indicators
+      REAL(wp), PARAMETER ::   zC0 = 2._wp/3._wp, zC1 = 1._wp/3._wp      ! optimal weights
+      !!----------------------------------------------------------------------
+      ztau = ABS( pb0 - pb1 )
+      za0 = zC0 * ( 1._wp + ( ztau / ( pb0 + zeps ) )**2 )
+      za1 = zC1 * ( 1._wp + ( ztau / ( pb1 + zeps ) )**2 )
+      pt_face = pt_0 + 0.5_wp * ( za0 * ( pt_p - pt_0 ) + za1 * ( pt_0 - pt_m ) ) / ( za0 + za1 )
+   END FUNCTION weno3_wb
+
+
+   PURE FUNCTION weno_vor5( pz, pu, pv, pmsk, pvel ) RESULT( pz_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno_vor5  ***
+      !!
+      !! ** Purpose :   upwind reconstruction of the relative vorticity at a
+      !!              velocity point from the six f-points that surround it
+      !!              along one direction (5th order WENO, or lower near land)
+      !!
+      !! ** Method  :   pz(1:6) is the vorticity at the f-points ordered along the
+      !!      reconstruction direction, the velocity point lying between pz(3) and
+      !!      pz(4). The stencil is biased towards the side the transverse velocity
+      !!      pvel comes from: pz(3) is upstream for pvel > 0, pz(4) for pvel < 0.
+      !!      The WENO weights are computed from the smoothness of the two velocity
+      !!      components interpolated at the same f-points (pu, pv), averaged:
+      !!      beta_r = ( beta_r(pu) + beta_r(pv) ) / 2 (Oceananigans' VelocityStencil).
+      !!        The order is 5 if the six f-points are all active (pmsk = 1, at least
+      !!      one ocean t-point around), 3 if the four central ones are, and 1
+      !!      (upstream value) otherwise, as Oceananigans does near boundaries.
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pz          ! relative vorticity at the f-points
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pu, pv      ! u and v interpolated at the f-points
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pmsk        ! =1 at active f-points
+      REAL(wp)              , INTENT(in) ::   pvel        ! transverse velocity at the velocity point
+      REAL(wp)                           ::   pz_rec      ! reconstructed vorticity
+      !
+      INTEGER  ::   i1, i2, i3, i4, i5   ! stencil indices, from upstream to downstream
+      REAL(wp) ::   zbu0, zbu1, zbu2, zbv0, zbv1, zbv2   ! smoothness indicators
+      !!----------------------------------------------------------------------
+      IF( pvel > 0._wp ) THEN   ;   i1 = 1 ; i2 = 2 ; i3 = 3 ; i4 = 4 ; i5 = 5
+      ELSE                      ;   i1 = 6 ; i2 = 5 ; i3 = 4 ; i4 = 3 ; i5 = 2
+      ENDIF
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         CALL weno5_beta( pu(i1), pu(i2), pu(i3), pu(i4), pu(i5), zbu0, zbu1, zbu2 )
+         CALL weno5_beta( pv(i1), pv(i2), pv(i3), pv(i4), pv(i5), zbv0, zbv1, zbv2 )
+         pz_rec = weno5_wb( pz(i1), pz(i2), pz(i3), pz(i4), pz(i5),                                   &
+            &               0.5_wp * ( zbu0 + zbv0 ), 0.5_wp * ( zbu1 + zbv1 ), 0.5_wp * ( zbu2 + zbv2 ) )
+      ELSE
+         pz_rec = weno_vor3( pz(2:5), pu(2:5), pv(2:5), pmsk(2:5), pvel )
+      ENDIF
+   END FUNCTION weno_vor5
+
+
+   PURE FUNCTION weno_vor3( pz, pu, pv, pmsk, pvel ) RESULT( pz_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno_vor3  ***
+      !!
+      !! ** Purpose :   as weno_vor5 at 3rd order, from the four f-points that
+      !!              surround the velocity point (between pz(2) and pz(3))
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pz          ! relative vorticity at the f-points
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pu, pv      ! u and v interpolated at the f-points
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pmsk        ! =1 at active f-points
+      REAL(wp)              , INTENT(in) ::   pvel        ! transverse velocity at the velocity point
+      REAL(wp)                           ::   pz_rec      ! reconstructed vorticity
+      !
+      INTEGER  ::   i1, i2, i3           ! stencil indices, from upstream to downstream
+      REAL(wp) ::   zbu0, zbu1, zbv0, zbv1   ! smoothness indicators
+      !!----------------------------------------------------------------------
+      IF( pvel > 0._wp ) THEN   ;   i1 = 1 ; i2 = 2 ; i3 = 3
+      ELSE                      ;   i1 = 4 ; i2 = 3 ; i3 = 2
+      ENDIF
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         CALL weno3_beta( pu(i1), pu(i2), pu(i3), zbu0, zbu1 )
+         CALL weno3_beta( pv(i1), pv(i2), pv(i3), zbv0, zbv1 )
+         pz_rec = weno3_wb( pz(i1), pz(i2), pz(i3), 0.5_wp * ( zbu0 + zbv0 ), 0.5_wp * ( zbu1 + zbv1 ) )
+      ELSE
+         pz_rec = pz(i2)                                 ! 1st order upstream
+      ENDIF
+   END FUNCTION weno_vor3
+
+
+   PURE FUNCTION weno_up5( pt, ps, pmsk, pvel ) RESULT( pt_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno_up5  ***
+      !!
+      !! ** Purpose :   upwind reconstruction of a cell quantity at the point
+      !!              between the cells pt(3) and pt(4), from the six cells
+      !!              ordered along the reconstruction direction (5th order
+      !!              WENO, or lower near land)
+      !!
+      !! ** Method  :   The stencil is biased towards the side the velocity
+      !!      pvel comes from: pt(3) is upstream for pvel > 0, pt(4) for pvel < 0.
+      !!      The WENO weights are computed from the smoothness of ps, given at
+      !!      the same cells (ps = pt for the usual WENO reconstruction, or
+      !!      another quantity as in the FunctionStencil of Oceananigans).
+      !!        The order is 5 if the six cells are in the ocean (pmsk = 1),
+      !!      3 if the four central ones are, and 1 (upstream value) otherwise.
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pt          ! reconstructed quantity at the cells
+      REAL(wp), DIMENSION(6), INTENT(in) ::   ps          ! quantity used for the smoothness indicators
+      REAL(wp), DIMENSION(6), INTENT(in) ::   pmsk        ! =1 at ocean cells
+      REAL(wp)              , INTENT(in) ::   pvel        ! velocity at the reconstructed point
+      REAL(wp)                           ::   pt_rec      ! reconstructed value
+      !
+      INTEGER  ::   i1, i2, i3, i4, i5   ! stencil indices, from upstream to downstream
+      REAL(wp) ::   zb0, zb1, zb2        ! smoothness indicators
+      !!----------------------------------------------------------------------
+      IF( pvel > 0._wp ) THEN   ;   i1 = 1 ; i2 = 2 ; i3 = 3 ; i4 = 4 ; i5 = 5
+      ELSE                      ;   i1 = 6 ; i2 = 5 ; i3 = 4 ; i4 = 3 ; i5 = 2
+      ENDIF
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         CALL weno5_beta( ps(i1), ps(i2), ps(i3), ps(i4), ps(i5), zb0, zb1, zb2 )
+         pt_rec = weno5_wb( pt(i1), pt(i2), pt(i3), pt(i4), pt(i5), zb0, zb1, zb2 )
+      ELSE
+         pt_rec = weno_up3( pt(2:5), ps(2:5), pmsk(2:5), pvel )
+      ENDIF
+   END FUNCTION weno_up5
+
+
+   PURE FUNCTION weno_up3( pt, ps, pmsk, pvel ) RESULT( pt_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION weno_up3  ***
+      !!
+      !! ** Purpose :   as weno_up5 at 3rd order, from the four cells that
+      !!              surround the reconstructed point (between pt(2) and pt(3))
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pt          ! reconstructed quantity at the cells
+      REAL(wp), DIMENSION(4), INTENT(in) ::   ps          ! quantity used for the smoothness indicators
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pmsk        ! =1 at ocean cells
+      REAL(wp)              , INTENT(in) ::   pvel        ! velocity at the reconstructed point
+      REAL(wp)                           ::   pt_rec      ! reconstructed value
+      !
+      INTEGER  ::   i1, i2, i3    ! stencil indices, from upstream to downstream
+      REAL(wp) ::   zb0, zb1      ! smoothness indicators
+      !!----------------------------------------------------------------------
+      IF( pvel > 0._wp ) THEN   ;   i1 = 1 ; i2 = 2 ; i3 = 3
+      ELSE                      ;   i1 = 4 ; i2 = 3 ; i3 = 2
+      ENDIF
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         CALL weno3_beta( ps(i1), ps(i2), ps(i3), zb0, zb1 )
+         pt_rec = weno3_wb( pt(i1), pt(i2), pt(i3), zb0, zb1 )
+      ELSE
+         pt_rec = pt(i2)                                 ! 1st order upstream
+      ENDIF
+   END FUNCTION weno_up3
+
+
+   PURE FUNCTION cen4( pt, pmsk ) RESULT( pt_rec )
+      !!----------------------------------------------------------------------
+      !!                  ***  FUNCTION cen4  ***
+      !!
+      !! ** Purpose :   4th order centered interpolation at the point between
+      !!              pt(2) and pt(3) (Oceananigans Centered(order=4)), reduced
+      !!              to 2nd order if one of the four points is not active (pmsk)
+      !!----------------------------------------------------------------------
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pt          ! interpolated quantity
+      REAL(wp), DIMENSION(4), INTENT(in) ::   pmsk        ! =1 at active points
+      REAL(wp)                           ::   pt_rec      ! interpolated value
+      !
+      REAL(wp), PARAMETER ::   zr1_12 = 1._wp / 12._wp
+      !!----------------------------------------------------------------------
+      IF( MINVAL( pmsk(:) ) > 0.5_wp ) THEN
+         pt_rec = (  7._wp * ( pt(2) + pt(3) ) - ( pt(1) + pt(4) )  ) * zr1_12
+      ELSE
+         pt_rec = 0.5_wp * ( pt(2) + pt(3) )
+      ENDIF
+   END FUNCTION cen4
