@@ -1101,6 +1101,9 @@
    !
    nn_e3f_typ = 0          !  type of e3f (EEN, ENE, ENS, MIX only)  =0  e3f = mi(mj(e3t))/4
    !                       !                                         =1  e3f = mi(mj(e3t))/mi(mj( tmask))
+   ln_dynvor_weno = .false. !  relative vorticity by WENO upwind reconstruction (vector form only);
+   !                        !  the scheme chosen above then computes the Coriolis term only
+      nn_dynvor_weno = 5    !  =3/5, order of the WENO reconstruction (5th order requires nn_hls = 3)
 /
 !-----------------------------------------------------------------------
 &namdyn_hpg    !   Hydrostatic pressure gradient option                 (default: NO selection)

@@ -9,9 +9,7 @@ MODULE traadv_weno
    !!----------------------------------------------------------------------
    !!   tra_adv_weno  : update the tracer trend with the horizontal and
    !!                   vertical advection trends using a WENO scheme
-   !!   weno5_face    : 5th order WENO-Z reconstruction, with order reduction
-   !!   weno5         : 5th order WENO-Z reconstruction at a cell face
-   !!   weno3         : 3rd order WENO-Z reconstruction at a cell face
+   !!   weno5_face, weno5, weno3 : WENO-Z reconstructions (weno_kernels.h90)
    !!----------------------------------------------------------------------
    USE oce            ! ocean dynamics and active tracers
    USE trc_oce        ! share passive tracers/Ocean variables
@@ -38,15 +36,6 @@ MODULE traadv_weno
 
    REAL(wp), PUBLIC, PARAMETER :: pp_stb_thres_tra_weno = 0.85_wp  ! starting Courant number threshold for adaptive implicit vertical advection
    REAL(wp), PUBLIC, PARAMETER :: pp_stb_cstra_tra_weno = 1.00_wp  ! stability constraint
-
-   REAL(wp), PARAMETER ::   pp_eps = 1.e-8_wp        ! regularisation of the smoothness indicators
-   !                                                 ! 3rd order: optimal weights of the stencils
-   REAL(wp), PARAMETER ::   pp_C0_3 = 2._wp / 3._wp     ! (i  , i+1)
-   REAL(wp), PARAMETER ::   pp_C1_3 = 1._wp / 3._wp     ! (i-1, i  )
-   !                                                 ! 5th order: optimal weights of the stencils
-   REAL(wp), PARAMETER ::   pp_C0_5 = 3._wp / 10._wp    ! (i  , i+1, i+2)
-   REAL(wp), PARAMETER ::   pp_C1_5 = 3._wp /  5._wp    ! (i-1, i  , i+1)
-   REAL(wp), PARAMETER ::   pp_C2_5 = 1._wp / 10._wp    ! (i-2, i-1, i  )
 
    !! * Substitutions
 #  include "do_loop_substitute.h90"
@@ -278,101 +267,8 @@ CONTAINS
    END SUBROUTINE tra_adv_weno_t
 
 
-   PURE FUNCTION weno5_face( pt_m2, pt_m1, pt_0, pt_p1, pt_p2, pm5, pm3 ) RESULT( pt_face )
-      !!----------------------------------------------------------------------
-      !!                  ***  FUNCTION weno5_face  ***
-      !!
-      !! ** Purpose :   tracer value at the face between the upstream cell (pt_0)
-      !!              and the downstream cell (pt_p1), at the highest order allowed
-      !!              by the mask of the stencil: 5th order WENO (pm5 = 1), 3rd order
-      !!              WENO (pm3 = 1), or 1st order upstream
-      !!----------------------------------------------------------------------
-      REAL(wp), INTENT(in) ::   pt_m2, pt_m1, pt_0, pt_p1, pt_p2   ! stencil, from upstream to downstream
-      REAL(wp), INTENT(in) ::   pm5, pm3                           ! =1 if the 5th / 3rd order stencil is in the ocean
-      REAL(wp)             ::   pt_face                            ! reconstructed value at the face
-      !!----------------------------------------------------------------------
-      pt_face = MERGE( weno5( pt_m2, pt_m1, pt_0, pt_p1, pt_p2 ),                &
-         &             MERGE( weno3( pt_m1, pt_0, pt_p1 ), pt_0, pm3 > 0.5_wp ), pm5 > 0.5_wp )
-   END FUNCTION weno5_face
-
-
-   PURE FUNCTION weno5( pt_m2, pt_m1, pt_0, pt_p1, pt_p2 ) RESULT( pt_face )
-      !!----------------------------------------------------------------------
-      !!                  ***  FUNCTION weno5  ***
-      !!
-      !! ** Purpose :   5th order WENO-Z reconstruction of a tracer at the face
-      !!              between the upstream cell (pt_0) and the downstream cell (pt_p1)
-      !!
-      !! ** Method  :   The three candidate stencils are (pt_0, pt_p1, pt_p2),
-      !!      (pt_m1, pt_0, pt_p1) and (pt_m2, pt_m1, pt_0), with optimal weights
-      !!      3/10, 3/5 and 1/10. Written with the tracer differences
-      !!      d1 = pt_m1 - pt_m2, d2 = pt_0 - pt_m1, d3 = pt_p1 - pt_0, d4 = pt_p2 - pt_p1,
-      !!      the stencil reconstructions relative to the upstream value are
-      !!          p0 = 2/3 d3 - 1/6 d4 ,  p1 = 1/6 d2 + 1/3 d3 ,  p2 = 5/6 d2 - 1/3 d1
-      !!      and the smoothness indicators are 3 times those of Jiang & Shu (1996)
-      !!      (as in Oceananigans), e.g.  beta_0 = 13/4 (d4 - d3)^2 + 3/4 (d4 - 3 d3)^2.
-      !!      The WENO-Z weights are
-      !!          alpha_r = C_r * ( 1 + ( tau / ( beta_r + eps ) )^2 ),  tau = |beta_0 - beta_2|
-      !!      and  pt_face = pt_0 + sum_r( alpha_r p_r ) / sum_r( alpha_r ).
-      !!      This is Oceananigans' WENO(order=5). The left- and right-biased
-      !!      reconstructions are the same function applied to the mirrored stencil,
-      !!      so that the scheme is symmetric to round-off.
-      !!----------------------------------------------------------------------
-      REAL(wp), INTENT(in) ::   pt_m2, pt_m1, pt_0, pt_p1, pt_p2   ! stencil, from upstream to downstream
-      REAL(wp)             ::   pt_face                            ! reconstructed value at the face
-      !
-      REAL(wp) ::   zd1, zd2, zd3, zd4, zb0, zb1, zb2, ztau, za0, za1, za2   ! local scalars
-      !!----------------------------------------------------------------------
-      zd1 = pt_m1 - pt_m2                     ! differences spanned by the stencils
-      zd2 = pt_0  - pt_m1
-      zd3 = pt_p1 - pt_0
-      zd4 = pt_p2 - pt_p1
-      zb0 = 3.25_wp * ( zd4 - zd3 )**2 + 0.75_wp * ( zd4 - 3._wp * zd3 )**2   ! smoothness indicators
-      zb1 = 3.25_wp * ( zd3 - zd2 )**2 + 0.75_wp * ( zd2 +         zd3 )**2
-      zb2 = 3.25_wp * ( zd2 - zd1 )**2 + 0.75_wp * ( 3._wp * zd2 - zd1 )**2
-      ztau = ABS( zb0 - zb2 )                 ! global smoothness indicator
-      za0 = pp_C0_5 * ( 1._wp + ( ztau / ( zb0 + pp_eps ) )**2 )
-      za1 = pp_C1_5 * ( 1._wp + ( ztau / ( zb1 + pp_eps ) )**2 )
-      za2 = pp_C2_5 * ( 1._wp + ( ztau / ( zb2 + pp_eps ) )**2 )
-      pt_face = pt_0 + (  za0 * ( 2._wp * zd3 - 0.5_wp * zd4 ) / 3._wp             &
-         &              + za1 * ( 0.5_wp * zd2 + zd3 ) / 3._wp                     &
-         &              + za2 * ( 2.5_wp * zd2 - zd1 ) / 3._wp  ) / ( za0 + za1 + za2 )
-   END FUNCTION weno5
-
-
-   PURE FUNCTION weno3( pt_m, pt_0, pt_p ) RESULT( pt_face )
-      !!----------------------------------------------------------------------
-      !!                  ***  FUNCTION weno3  ***
-      !!
-      !! ** Purpose :   3rd order WENO-Z reconstruction of a tracer at the face
-      !!              between the upstream cell (pt_0) and the downstream cell (pt_p)
-      !!
-      !! ** Method  :   The two candidate stencils are (pt_0, pt_p) and (pt_m, pt_0),
-      !!      with optimal weights 2/3 and 1/3 and smoothness indicators equal to
-      !!      the square of their tracer difference. The WENO-Z weights are
-      !!          alpha_r = C_r * ( 1 + ( tau / ( beta_r + eps ) )^2 ),  tau = |beta_0 - beta_1|
-      !!      The reconstruction is written relative to the upstream value,
-      !!          pt_face = pt_0 + 1/2 * ( w_0 * (pt_p - pt_0) + w_1 * (pt_0 - pt_m) )
-      !!      This is Oceananigans' WENO(order=3). The left- and right-biased
-      !!      reconstructions are the same function applied to the mirrored stencil,
-      !!      so that the scheme is symmetric to round-off.
-      !!----------------------------------------------------------------------
-      REAL(wp), INTENT(in) ::   pt_m      ! 2nd upstream cell value
-      REAL(wp), INTENT(in) ::   pt_0      ! upstream cell value
-      REAL(wp), INTENT(in) ::   pt_p      ! downstream cell value
-      REAL(wp)             ::   pt_face   ! reconstructed value at the face
-      !
-      REAL(wp) ::   zd0, zd1, zb0, zb1, ztau, za0, za1   ! local scalars
-      !!----------------------------------------------------------------------
-      zd0 = pt_p - pt_0                       ! differences spanned by each stencil
-      zd1 = pt_0 - pt_m
-      zb0 = zd0 * zd0                         ! smoothness indicators
-      zb1 = zd1 * zd1
-      ztau = ABS( zb0 - zb1 )                 ! global smoothness indicator
-      za0 = pp_C0_3 * ( 1._wp + ( ztau / ( zb0 + pp_eps ) )**2 )
-      za1 = pp_C1_3 * ( 1._wp + ( ztau / ( zb1 + pp_eps ) )**2 )
-      pt_face = pt_0 + 0.5_wp * ( za0 * zd0 + za1 * zd1 ) / ( za0 + za1 )
-   END FUNCTION weno3
+   !! * WENO reconstructions (weno5_face, weno5, weno3, ...)
+#  include "weno_kernels.h90"
 
    !!======================================================================
 END MODULE traadv_weno
