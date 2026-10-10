@@ -51,7 +51,7 @@ MODULE dom_oce
    !! =========================
    LOGICAL,  PUBLIC :: ln_bt_auto       !: Set number of barotropic iterations automatically
    INTEGER,  PUBLIC :: nn_bt_flt        !: Choice of dissipation method for barotropic sub-stepping
-   INTEGER,  PUBLIC :: nn_bt_frc        !: order of the Adams-Bashforth extrapolation of the slow forcing of the barotropic mode
+   INTEGER,  PUBLIC :: nn_bt_frc        !: order of the Adams-Bashforth extrapolation of the advective forcing of the barotropic mode
    INTEGER,  PUBLIC :: nn_e          !: Number of barotropic iterations during one baroclinic step (rn_Dt)
    REAL(wp), PUBLIC :: rn_bt_cmax       !: Maximum allowed courant number (used if ln_bt_auto=T)
    REAL(wp), PUBLIC :: rn_bt_alpha      !: Time stepping diffusion parameter

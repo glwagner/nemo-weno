@@ -110,10 +110,7 @@ CONTAINS
       ENDIF
 
       ALLOCATE( sshe_rhs(jpi,jpj) , Ue_rhs(A2D(0)) , Ve_rhs(A2D(0)) , CdU_u(jpi,jpj) , CdU_v(jpi,jpj) )
-      IF( nn_bt_frc > 1 ) THEN      ! part of the 2D RHS extrapolated in time (HPG + VOR + ADV), see dynspg_ts
-         ALLOCATE( Ue_xtp(A2D(0)) , Ve_xtp(A2D(0)) )
-         Ue_xtp(:,:) = 0._wp   ;   Ve_xtp(:,:) = 0._wp
-      ENDIF
+      IF( nn_bt_frc > 1 )   ALLOCATE( Ue_xtp(A2D(0)) , Ve_xtp(A2D(0)) )   ! advective part of the 2D RHS (extrapolated in dynspg_ts)
 
       !>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>!
       !                      RHS of barotropic momentum  Eq.                  !
@@ -130,12 +127,6 @@ CONTAINS
          !                             !*  hydrostatic pressure gradient (HPG))  *!   always called FIRST
          CALL eos    ( ts, Kbb, rhd )                          ! in situ density anomaly at Kbb
          CALL dyn_hpg( kt, Kbb     , uu, vv, Krhs )            ! horizontal gradient of Hydrostatic pressure
-         IF( nn_bt_frc > 1 ) THEN          !* extrapolated part of the 2D RHS: HPG (dyn_hpg sets the 3D RHS)
-            DO_2D( 0, 0, 0, 0 )
-               Ue_xtp(ji,jj) = Ue_xtp(ji,jj) + SUM( e3u_0(ji,jj,1:jpkm1)*uu(ji,jj,1:jpkm1,Krhs)*umask(ji,jj,1:jpkm1) ) * r1_hu_0(ji,jj)
-               Ve_xtp(ji,jj) = Ve_xtp(ji,jj) + SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
-            END_2D
-         ENDIF
          !
          !                             !*  lateral viscosity (LDF)  *!
          CALL dyn_ldf( kt, Kbb, Kbb, uu, vv, Krhs )
@@ -151,15 +142,24 @@ CONTAINS
       DO jtile = 1, nijtile
          IF( ln_tile ) CALL dom_tile( ntsi, ntsj, ntei, ntej, ktile = jtile )
 #endif
-         IF( nn_bt_frc > 1 ) THEN          !* extrapolated part of the 2D RHS: (HPG) - (HPG + LDF + sponge)
-            DO_2D( 0, 0, 0, 0 )
-               Ue_xtp(ji,jj) = Ue_xtp(ji,jj) - SUM( e3u_0(ji,jj,1:jpkm1)*uu(ji,jj,1:jpkm1,Krhs)*umask(ji,jj,1:jpkm1) ) * r1_hu_0(ji,jj)
-               Ve_xtp(ji,jj) = Ve_xtp(ji,jj) - SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
-            END_2D
-         ENDIF
          !                             !*  COR + MET  *!   Flux Form        : Coriolis + Metric Term  
          !                             !*     VOR     *!   Vector Inv. Form : Coriolis + relative Vorticity
-         CALL dyn_vor( kt,      Kbb, uu, vv, Krhs )
+         IF( nn_bt_frc > 1 .AND. n_dynadv /= np_LIN_dyn ) THEN   ! planetary vorticity (+ Stokes-Coriolis) first, then save
+            CALL dyn_vor( kt,      Kbb, uu, vv, Krhs, ncor )      ! the depth mean of the 2D RHS before its advective part
+            DO_2D( 0, 0, 0, 0 )
+               Ue_xtp(ji,jj) = - SUM( e3u_0(ji,jj,1:jpkm1)*uu(ji,jj,1:jpkm1,Krhs)*umask(ji,jj,1:jpkm1) ) * r1_hu_0(ji,jj)
+               Ve_xtp(ji,jj) = - SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
+            END_2D
+            CALL dyn_vor( kt,      Kbb, uu, vv, Krhs, nrvm )      ! relative vorticity (VIF) or metric term (FF)
+         ELSE
+            CALL dyn_vor( kt,      Kbb, uu, vv, Krhs )
+            IF( nn_bt_frc > 1 ) THEN                              ! linear dynamics: no advective forcing
+               DO_2D( 0, 0, 0, 0 )
+                  Ue_xtp(ji,jj) = - SUM( e3u_0(ji,jj,1:jpkm1)*uu(ji,jj,1:jpkm1,Krhs)*umask(ji,jj,1:jpkm1) ) * r1_hu_0(ji,jj)
+                  Ve_xtp(ji,jj) = - SUM( e3v_0(ji,jj,1:jpkm1)*vv(ji,jj,1:jpkm1,Krhs)*vmask(ji,jj,1:jpkm1) ) * r1_hv_0(ji,jj)
+               END_2D
+            ENDIF
+         ENDIF
          !
          !                             !*  compute advection  *!   (only KEG + ZAD in Vector Inv. Form)
          IF( .NOT.lk_linssh ) THEN
@@ -203,8 +203,8 @@ CONTAINS
             END_2D
          END SELECT
          !
-         IF( nn_bt_frc > 1 ) THEN          !* extrapolated part of the 2D RHS: HPG + VOR + ADV
-            DO_2D( 0, 0, 0, 0 )             !  (LDF, sponge, and the forcings added below are not extrapolated)
+         IF( nn_bt_frc > 1 ) THEN          !* advective part of the 2D RHS (extrapolated in time in dynspg_ts)
+            DO_2D( 0, 0, 0, 0 )             !  VIF : RVO + KEG + ZAD   ;   FF : MET + ADV
                Ue_xtp(ji,jj) = Ue_xtp(ji,jj) + Ue_rhs(ji,jj)
                Ve_xtp(ji,jj) = Ve_xtp(ji,jj) + Ve_rhs(ji,jj)
             END_2D

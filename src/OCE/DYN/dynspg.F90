@@ -220,7 +220,7 @@ CONTAINS
          WRITE(numout,*) '   Namelist : namdyn_spg                    '
          WRITE(numout,*) '      Explicit free surface                  ln_dynspg_exp = ', ln_dynspg_exp
          WRITE(numout,*) '      Free surface with time splitting       ln_dynspg_ts  = ', ln_dynspg_ts
-         WRITE(numout,*) '         order of the extrapolation of the slow forcing   nn_bt_frc = ', nn_bt_frc
+         WRITE(numout,*) '         order of the extrapolation of the advective forcing   nn_bt_frc = ', nn_bt_frc
       ENDIF
       !                          ! Control of surface pressure gradient scheme options
                                      nspg =  np_NO    ;   ioptio = 0

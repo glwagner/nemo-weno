@@ -215,9 +215,12 @@ CONTAINS
       INTEGER                             , INTENT(in   ) ::   Kmm, Krhs   ! ocean time level indices
       REAL(wp), DIMENSION(jpi,jpj,jpk,jpt), INTENT(inout) ::   puu, pvv    ! ocean velocity field and RHS of momentum equation
       INTEGER                             , INTENT(in   ) ::   knoco       ! specified vorticity trend (= np_MET or np_RVO)
+      LOGICAL ::   ll_cor   ! planetary vorticity included in knoco
       !!----------------------------------------------------------------------
       !
       IF( ln_timing )   CALL timing_start('dyn_vor_RK3')
+      !
+      ll_cor = ( knoco == np_COR .OR. knoco == np_CRV .OR. knoco == np_CME )   ! Stokes-Coriolis added with the planetary vorticity only
       !
       !              !==  total vorticity trend added to the general trend  ==!
       !!st WARNING 22/02 !!!!!!!! stoke drift or not stoke drift ? => bar to do later !!!
@@ -228,31 +231,31 @@ CONTAINS
          SELECT CASE ( nvor_scheme )      !==  vorticity trend added to the general trend  ==!
          CASE( np_ENT )                        !* energy conserving scheme  (T-pts)
                              CALL vor_enT( kt, Kmm, knoco, puu(:,:,:,Kmm) , pvv(:,:,:,Kmm) , puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! total vorticity trend
-            IF( ln_sdw .AND. .NOT. ln_vortex_force )  THEN
+            IF( ln_sdw .AND. .NOT. ln_vortex_force .AND. ll_cor )  THEN
                              CALL vor_enT( kt, Kmm, ncor, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! add the Stokes-Coriolis trend
-            ELSE IF( ln_sdw .AND. ln_vortex_force )   THEN
+            ELSE IF( ln_sdw .AND. ln_vortex_force .AND. ll_cor )   THEN
                              CALL vor_enT( kt, Kmm, ntot, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! add the Stokes-Coriolis trend and vortex force
             ENDIF
          CASE( np_ENE )                        !* energy conserving scheme
                              CALL vor_ene( kt, Kmm, knoco, puu(:,:,:,Kmm) , pvv(:,:,:,Kmm) , puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! total vorticity trend
-            IF( ln_sdw .AND. .NOT. ln_vortex_force )  THEN
+            IF( ln_sdw .AND. .NOT. ln_vortex_force .AND. ll_cor )  THEN
                              CALL vor_ene( kt, Kmm, ncor, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! add the Stokes-Coriolis trend
-            ELSE IF( ln_sdw .AND. ln_vortex_force )   THEN
+            ELSE IF( ln_sdw .AND. ln_vortex_force .AND. ll_cor )   THEN
                              CALL vor_ene( kt, Kmm, ntot, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! add the Stokes-Coriolis trend and vortex force
             ENDIF
          CASE( np_ENS )                        !* enstrophy conserving scheme
                              CALL vor_ens( kt, Kmm, knoco, puu(:,:,:,Kmm) , pvv(:,:,:,Kmm) , puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )  ! total vorticity trend
 
-            IF( ln_sdw .AND. .NOT. ln_vortex_force )  THEN
+            IF( ln_sdw .AND. .NOT. ln_vortex_force .AND. ll_cor )  THEN
                              CALL vor_ens( kt, Kmm, ncor, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )  ! add the Stokes-Coriolis trend
-            ELSE IF( ln_sdw .AND. ln_vortex_force )   THEN
+            ELSE IF( ln_sdw .AND. ln_vortex_force .AND. ll_cor )   THEN
                              CALL vor_ens( kt, Kmm, ntot, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )  ! add the Stokes-Coriolis trend and vortex force
             ENDIF
          CASE( np_EEN )                        !* energy and enstrophy conserving scheme
                              CALL vor_een( kt, Kmm, knoco, puu(:,:,:,Kmm) , pvv(:,:,:,Kmm) , puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! total vorticity trend
-            IF( ln_sdw .AND. .NOT. ln_vortex_force )  THEN
+            IF( ln_sdw .AND. .NOT. ln_vortex_force .AND. ll_cor )  THEN
                              CALL vor_een( kt, Kmm, ncor, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! add the Stokes-Coriolis trend
-            ELSE IF( ln_sdw .AND. ln_vortex_force )   THEN
+            ELSE IF( ln_sdw .AND. ln_vortex_force .AND. ll_cor )   THEN
                              CALL vor_een( kt, Kmm, ntot, usd, vsd, puu(:,:,:,Krhs), pvv(:,:,:,Krhs) )   ! add the Stokes-Coriolis trend and vortex force
             ENDIF
          END SELECT

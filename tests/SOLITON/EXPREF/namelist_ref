@@ -1121,7 +1121,7 @@
       !                          !                     = 2 Boxcar over 2*nn_e  "    "
       !                          !                     = 3 Temporal dissipation (Demange 2019)
       rn_bt_alpha   =  0.           ! (if nn_bt_flt=3) ==> Temporal diffusion parameter (recommended values = 0.07-0.09)
-      nn_bt_frc     = 1          ! Slow forcing of the barotropic mode over [n,n+1]:
+      nn_bt_frc     = 1          ! Advective forcing of the barotropic mode (depth mean of the momentum advection) over [n,n+1]:
       !                          !                     = 1 forcing at time n (1st order in time)
       !                          !                     = 2 / 3 Adams-Bashforth 2 / 3 extrapolation (recommended: 3,
       !                          !                         needed with weakly dissipative momentum advection)

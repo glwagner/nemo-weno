@@ -26,7 +26,7 @@ MODULE dynspg_ts
    !!   dyn_spg_ts_init: initialisation of the time-splitting scheme
    !!   ts_wgt         : set time-splitting weights for temporal averaging (or not)
    !!   ts_rst         : read/write time-splitting fields in restart file
-   !!   ts_frc_ab      : Adams-Bashforth extrapolation of the slow forcing of the barotropic mode
+   !!   ts_frc_ab      : Adams-Bashforth extrapolation of the advective forcing of the barotropic mode
    !!----------------------------------------------------------------------
    USE oce             ! ocean dynamics and tracers
    USE dom_oce         ! ocean space and time domain
@@ -86,7 +86,7 @@ MODULE dynspg_ts
    REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   sshe_rhs           ! RHS of ssh Eq.
    REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   Ue_rhs, Ve_rhs    ! RHS of barotropic velocity Eq.
    REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   CdU_u, CdU_v       ! top/bottom stress at u- & v-points
-   REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   Ue_xtp, Ve_xtp     ! part of (Ue_rhs,Ve_rhs) extrapolated in time
+   REAL(wp), PUBLIC, ALLOCATABLE, SAVE, DIMENSION(:,:) ::   Ue_xtp, Ve_xtp     ! advective part of (Ue_rhs,Ve_rhs), extrapolated in time
 
    !                                   !* Adams-Bashforth extrapolation of the slow forcing (nn_bt_frc > 1)
    INTEGER                                     ::   nfrc_ab = 0          ! number of previous forcings available (0, 1 or 2)
@@ -164,7 +164,7 @@ CONTAINS
       REAL(wp), DIMENSION(jpi,jpj) :: zu_trd, zu_spg
       REAL(wp), DIMENSION(jpi,jpj) :: zv_trd, zv_spg
       REAL(wp), DIMENSION(A2D(0) ) :: zu_frc, zv_frc
-      REAL(wp), DIMENSION(A2D(0) ) :: zu_xtp, zv_xtp     ! extrapolated part of the slow forcing (nn_bt_frc > 1)
+      REAL(wp), DIMENSION(A2D(0) ) :: zu_xtp, zv_xtp     ! extrapolated advective forcing (nn_bt_frc > 1)
       REAL(wp), DIMENSION(jpi,jpj) :: zsshu_a, zhup2_e, zhtp2_e
       REAL(wp), DIMENSION(jpi,jpj) :: zsshv_a, zhvp2_e, zsshp2_e
       REAL(wp), DIMENSION(jpi,jpj) :: zCdU_u, zCdU_v   ! top/bottom stress at u- & v-points
@@ -264,16 +264,14 @@ CONTAINS
          zv_frc(ji,jj) = zv_frc(ji,jj) - zv_trd(ji,jj) * ssvmask(ji,jj)
       END_2D
       !
-      !                                   !=  extrapolate the slow forcing over [n,n+1]  =!
-      IF( nn_bt_frc > 1 ) THEN                ! HPG + VOR + ADV without the 2D Coriolis, at time n
-         DO_2D( 0, 0, 0, 0 )
-            zu_xtp(ji,jj) = Ue_xtp(ji,jj) - zu_trd(ji,jj) * ssumask(ji,jj)
-            zv_xtp(ji,jj) = Ve_xtp(ji,jj) - zv_trd(ji,jj) * ssvmask(ji,jj)
-         END_2D
+      !                                   !=  extrapolate the advective forcing over [n,n+1]  =!
+      IF( nn_bt_frc > 1 ) THEN                ! (RVO+KEG+ZAD or MET+ADV, at time n)
+         zu_xtp(:,:) = Ue_xtp(:,:)
+         zv_xtp(:,:) = Ve_xtp(:,:)
          CALL ts_frc_ab( zu_xtp, zv_xtp )     ! ==> extrapolated over [n,n+1]
          DO_2D( 0, 0, 0, 0 )                  ! replace its value at n by the extrapolated one
-            zu_frc(ji,jj) = zu_frc(ji,jj) + zu_xtp(ji,jj) - ( Ue_xtp(ji,jj) - zu_trd(ji,jj) * ssumask(ji,jj) )
-            zv_frc(ji,jj) = zv_frc(ji,jj) + zv_xtp(ji,jj) - ( Ve_xtp(ji,jj) - zv_trd(ji,jj) * ssvmask(ji,jj) )
+            zu_frc(ji,jj) = zu_frc(ji,jj) + zu_xtp(ji,jj) - Ue_xtp(ji,jj)
+            zv_frc(ji,jj) = zv_frc(ji,jj) + zv_xtp(ji,jj) - Ve_xtp(ji,jj)
          END_2D
       ENDIF
 
@@ -898,27 +896,36 @@ CONTAINS
       !!---------------------------------------------------------------------
       !!                   ***  ROUTINE ts_frc_ab  ***
       !!
-      !! ** Purpose : Adams-Bashforth extrapolation of the slow forcing of the
-      !!              barotropic mode over the time step [n,n+1]
+      !! ** Purpose : Adams-Bashforth extrapolation of the advective forcing of
+      !!              the barotropic mode over the time step [n,n+1]
       !!
       !! ** Method  : The slow forcing of the depth averaged momentum (all the
       !!      terms except the barotropic Coriolis and surface pressure gradient,
       !!      which are sub-stepped) is computed at time n only, and is held
       !!      constant over the barotropic sub-steps. With RK3 this is the only
       !!      update of the depth averaged velocity, so that the slow terms are
-      !!      integrated forward in time (1st order), which is unstable for
-      !!      non-dissipative momentum advection schemes. Its non-dissipative part
-      !!      (pressure gradient, vorticity and advection terms, without the 2D
-      !!      Coriolis), is replaced by
+      !!      integrated forward in time (1st order). For the momentum advection
+      !!      of the depth averaged flow (relative vorticity, KE gradient and
+      !!      vertical advection in vector form, metric and advection terms in
+      !!      flux form) this injects kinetic energy at a rate that scales with
+      !!      the time step, and is unstable with non-dissipative schemes. This
+      !!      advective forcing is thus replaced by
       !!          AB2:  F* = 3/2 F(n) - 1/2 F(n-1)
       !!          AB3:  F* = ( 23 F(n) - 16 F(n-1) + 5 F(n-2) ) / 12
       !!      (nn_bt_frc = 2 or 3), starting with lower orders when the previous
-      !!      forcings are not available (cold start). The dissipative terms
-      !!      (lateral viscosity, drag) and the external forcings are kept at
-      !!      time n: Adams-Bashforth is less stable than forward Euler for
-      !!      damping terms (AB3 is unstable for damping rates above 0.54/rDt).
+      !!      forcings are not available (cold start). All the other terms are
+      !!      kept at time n: the dissipative terms (lateral viscosity, drag)
+      !!      because Adams-Bashforth is less stable than forward Euler for
+      !!      damping, and the depth mean of the 3D planetary vorticity term
+      !!      because it is not a slow forcing: where the bottom depth jumps
+      !!      (shelf next to a deep column) it differs from the barotropic Coriolis
+      !!      term by f times the upper-level velocity of the deep neighbours,
+      !!      a coupling at the inertial frequency that is stable only in the
+      !!      forward-backward form provided by the original forcing at n and
+      !!      the barotropic velocity at n+1 used in the RK3 stages (extrapolating
+      !!      it makes ORCA2 blow up at a 17 m deep column of the Nile delta).
       !!----------------------------------------------------------------------
-      REAL(wp), DIMENSION(A2D(0)), INTENT(inout) ::   pu_frc, pv_frc   ! non-dissipative slow forcing at n ==> extrapolated
+      REAL(wp), DIMENSION(A2D(0)), INTENT(inout) ::   pu_frc, pv_frc   ! advective forcing at n ==> extrapolated
       !
       INTEGER  ::   ji, jj        ! dummy loop indices
       REAL(wp) ::   zu, zv        ! local scalars
@@ -1044,7 +1051,7 @@ CONTAINS
          ufrc_b1(:,:) = 0._wp   ;   vfrc_b1(:,:) = 0._wp   ;   ufrc_b2(:,:) = 0._wp   ;   vfrc_b2(:,:) = 0._wp
          nfrc_ab = 0
          IF(lwp) WRITE(numout,*)
-         IF(lwp) WRITE(numout,*) '     Slow forcing of the barotropic mode extrapolated with Adams-Bashforth of order ', nn_bt_frc
+         IF(lwp) WRITE(numout,*) '     Advective forcing of the barotropic mode extrapolated with Adams-Bashforth of order ', nn_bt_frc
       ENDIF
       !
       ! init some arrays for debug sette
