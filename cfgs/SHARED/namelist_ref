@@ -939,8 +939,8 @@
       nn_ubs_v   =  2            !  =2  , vertical 2nd order FCT / COMPACT 4th order
    ln_traadv_qck = .false. !  QUICKEST scheme
    ln_traadv_weno= .false. !  WENO scheme
-      nn_weno_h  =  3            !  =3  , horizontal 3rd order WENO
-      nn_weno_v  =  3            !  =3  , vertical   3rd order WENO
+      nn_weno_h  =  3            !  =3/5, horizontal 3rd / 5th order WENO (5th order requires nn_hls = 3)
+      nn_weno_v  =  3            !  =3/5, vertical   3rd / 5th order WENO
 /
 !-----------------------------------------------------------------------
 &namtra_ldf    !   lateral diffusion scheme for tracers                 (default: NO selection)
