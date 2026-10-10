@@ -60,6 +60,8 @@ CONTAINS
       REAL(wp) :: zdt, zdu, zdv
       REAL(wp) :: zjetx, zjety, zbeta
       REAL(wp), DIMENSION(:,:), ALLOCATABLE  ::   zrandom
+      INTEGER                                ::   iseed    ! size of the random seed
+      INTEGER , DIMENSION(:)  , ALLOCATABLE  ::   iseeds   ! random seed
       !!----------------------------------------------------------------------
       !
       IF(lwp) WRITE(numout,*)
@@ -242,7 +244,13 @@ CONTAINS
       !                          !==  add noise  ==!
       IF (ln_sshnoise) THEN
          ALLOCATE(zrandom(Ni0glo,Nj0glo))
-!!$         CALL RANDOM_SEED()   ! uncomment to get a new seed at eachg run. 
+         ! fixed seed, identical on all processes: the noise is reproducible and independent of the domain decomposition
+         ! (the default seed is not fixed, e.g. gfortran >= 7 seeds from the OS). Comment out to get a new seed at each run.
+         CALL RANDOM_SEED( size = iseed )
+         ALLOCATE( iseeds(iseed) )
+         iseeds(:) = 1234567
+         CALL RANDOM_SEED( put = iseeds )
+         DEALLOCATE( iseeds )
          CALL RANDOM_NUMBER(zrandom)
          DO_2D( 0, 0, 0, 0 )
             pv(ji,jj,1) = pv(ji,jj,1) + 0.5_wp * ( zrandom(mig(ji,0),mjg(jj,0)) - 0.5_wp )
