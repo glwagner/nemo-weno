@@ -146,7 +146,7 @@ CONTAINS
          ENDIF
       END IF
       !
-      IF( ll_zAimp2 )   ALLOCATE( ztmp(T2D(2),jpk), zwdia(T2D(2),jpk), zwinf(T2D(2),jpk), zwsup(T2D(2),jpk) )
+      IF( ll_zAimp2 )   ALLOCATE( ztmp(T2D(nn_hls),jpk), zwdia(T2D(nn_hls),jpk), zwinf(T2D(nn_hls),jpk), zwsup(T2D(nn_hls),jpk) )
       !
       DO jn = 1, kjpt            !==  loop over the tracers  ==!
          !
@@ -1101,9 +1101,9 @@ CONTAINS
       !!        The solution is pta.
       !!        The 3d array zwt is used as a work space array.
       !!----------------------------------------------------------------------
-      REAL(wp),DIMENSION(T2D(2),jpk)          , INTENT(in   ) ::   pD, pU, PL    ! 3-diagonal matrix
-      REAL(wp),DIMENSION(T2D(2),jpk)          , INTENT(in   ) ::   pRHS          ! Right-Hand-Side
-      REAL(wp),DIMENSION(T2D(2),jpk)          , INTENT(  out) ::   pt_out        !!gm field at level=F(klev)
+      REAL(wp),DIMENSION(T2D(nn_hls),jpk)     , INTENT(in   ) ::   pD, pU, PL    ! 3-diagonal matrix
+      REAL(wp),DIMENSION(T2D(nn_hls),jpk)     , INTENT(in   ) ::   pRHS          ! Right-Hand-Side
+      REAL(wp),DIMENSION(T2D(nn_hls),jpk)     , INTENT(  out) ::   pt_out        !!gm field at level=F(klev)
       INTEGER                                 , INTENT(in   ) ::   klev          ! =1 pt_out at w-level
       !                                                                          ! =0 pt at t-level
       INTEGER                       , OPTIONAL, INTENT(in   ) ::   kbnd          ! Loop bounds

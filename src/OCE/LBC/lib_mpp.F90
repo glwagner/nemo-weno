@@ -143,7 +143,7 @@ MODULE lib_mpp
    INTEGER :: mpi_sumdd_sp, mpi_sumdd_dp
 
    ! Neighbourgs informations
-   INTEGER,    PARAMETER, PUBLIC ::   n_hlsmax = 2
+   INTEGER,    PARAMETER, PUBLIC ::   n_hlsmax = 3   ! maximum halo width (nn_hls)
    INTEGER, DIMENSION(8           ), PUBLIC ::   mpinei      !: 8-neighbourg MPI indexes (starting at 0, -1 if no neighbourg)
    INTEGER, DIMENSION(8,0:n_hlsmax), PUBLIC ::   mpiSnei     !: 8-neighbourg Send MPI indexes (starting at 0, -1 if no neighbourg)
    INTEGER, DIMENSION(8,0:n_hlsmax), PUBLIC ::   mpiRnei     !: 8-neighbourg Recv MPI indexes (starting at 0, -1 if no neighbourg)

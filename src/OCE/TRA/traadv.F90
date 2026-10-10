@@ -70,7 +70,7 @@ MODULE traadv
    INTEGER ::      nn_ubs_v             ! =2/4 : vertical choice of the order of UBS scheme
    LOGICAL ::   ln_traadv_qck    ! QUICKEST scheme flag
    LOGICAL ::   ln_traadv_weno   ! WENO scheme flag
-   INTEGER ::      nn_weno_h, nn_weno_v ! =3 : horizontal and vertical choices of the order of WENO scheme
+   INTEGER ::      nn_weno_h, nn_weno_v ! =3/5 : horizontal and vertical choices of the order of WENO scheme
 
    INTEGER ::   nadv             ! choice of the type of advection scheme
    !                             ! associated indices:
@@ -435,8 +435,11 @@ CONTAINS
          CALL ctl_warn( 'tra_adv_init: UBS scheme, only 2nd FCT scheme available on the vertical. It will be used' )
       ENDIF
       IF( ln_traadv_ubs .AND. ln_zad_Aimp )   CALL ctl_stop( 'tra_adv_init: UBS scheme, vertical implicit is not coded' )
-      IF( ln_traadv_weno .AND. ( nn_weno_h /= 3 .OR. nn_weno_v /= 3 ) ) THEN     ! WENO
-         CALL ctl_stop( 'tra_adv_init: WENO scheme, only 3rd order is available (higher orders need nn_hls > 2)' )
+      IF( ln_traadv_weno ) THEN                                                  ! WENO
+         IF( ( nn_weno_h /= 3 .AND. nn_weno_h /= 5 ) .OR. ( nn_weno_v /= 3 .AND. nn_weno_v /= 5 ) )   &
+            &   CALL ctl_stop( 'tra_adv_init: WENO scheme, choose 3rd or 5th order' )
+         IF( nn_weno_h == 5 .AND. nn_hls < 3 )   &
+            &   CALL ctl_stop( 'tra_adv_init: WENO scheme, 5th order in the horizontal requires nn_hls = 3 (namelist nammpp)' )
       ENDIF
       IF( ln_isfcav ) THEN                                                       ! ice-shelf cavities
          IF(  ln_traadv_cen .AND. nn_cen_v == 4    .OR.   &                            ! NO 4th order with ISF
