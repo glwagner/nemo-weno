@@ -40,7 +40,7 @@ export USING_DEBUG='no'        # Default: no  => default compil. options; use -b
 export USING_TIMING='yes'      # Default: yes => set ln_timing=.true.   ; use -T to disable
 export USING_ICEBERGS='yes'    # Default: yes => set ln_icebergs=.true. ; use -i to disable
 export USING_ABL='no'          # Default: no  => set ln_abl=.false.     ; use -a to set ln_abl=.true.
-export USING_EXTRA_HALO='no'   # Default: no  => set nn_hls=2           ; use -e to set nn_hls=3 (not yet implemented)
+export USING_EXTRA_HALO='no'   # Default: no  => set nn_hls=2           ; use -e to set nn_hls=3
 export USING_COLLECTIVES='yes' # Default: yes => set nn_comm=2          ; use -C to set nn_comm=1
 export USING_NOGATHER='yes'    # Default: yes => set ln_nnogather=.true.; use -N to set ln_nnogather=.false.
 export USING_TILING='yes'      # Default: yes => set ln_tile=.true.     ; use -t to disable
@@ -159,7 +159,7 @@ if [ $# -gt 0 ]; then
                echo '   RESTART, REPRO, PHYOPTS, ROTSYM, COUPLING, and VARIANTS, are selected)'
                echo '-T to set ln_timing false for configurations (default: true)'
                echo '-t set ln_tile false in all tests that support it (default: true)'
-               echo '-e set nn_hls=3 but it is not yet supported (default: nn_hls=2)'
+               echo '-e set nn_hls=3 (default: nn_hls=2)'
                echo '-i set ln_icebergs false (default: true)'
                echo '-a set ln_abl true (default: false)'
                echo '-C set nn_comm=1 (default: nn_comm=2 ==> use MPI3 collective comms)'

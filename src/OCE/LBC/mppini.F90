@@ -183,6 +183,10 @@ CONTAINS
       READ_NML_CFG(numnam,nammpp)
       !
       nn_hls = MAX(2, nn_hls)   ! nn_hls must be > 1
+      IF( nn_hls > n_hlsmax ) THEN
+         WRITE(ctmp1,*) '   nn_hls = ', nn_hls, ' is larger than the maximum halo width n_hlsmax = ', n_hlsmax
+         CALL ctl_stop( 'STOP', 'mpp_init:', ctmp1 )
+      ENDIF
 # if defined key_mpi2
       WRITE(numout,*) '   use key_mpi2, we force nn_comm = MIN(1,nn_comm)'
       nn_comm = MIN(1, nn_comm)   ! nn_comm = 0 for benchmark without communications
