@@ -30,6 +30,7 @@ MODULE traadv
    USE traadv_mus     ! MUSCL    scheme            (tra_adv_mus  routine)
    USE traadv_ubs     ! UBS      scheme            (tra_adv_ubs  routine)
    USE traadv_qck     ! QUICKEST scheme            (tra_adv_qck  routine)
+   USE traadv_weno    ! WENO     scheme            (tra_adv_weno routine)
    USE tramle         ! Mixed Layer Eddy transport (tra_mle_trp  routine)
    USE ldftra         ! Eddy Induced transport     (ldf_eiv_trp  routine)
    USE ldfslp         ! Lateral diffusion: slopes of neutral surfaces
@@ -68,6 +69,8 @@ MODULE traadv
    LOGICAL ::   ln_traadv_ubs    ! UBS scheme flag
    INTEGER ::      nn_ubs_v             ! =2/4 : vertical choice of the order of UBS scheme
    LOGICAL ::   ln_traadv_qck    ! QUICKEST scheme flag
+   LOGICAL ::   ln_traadv_weno   ! WENO scheme flag
+   INTEGER ::      nn_weno_h, nn_weno_v ! =3 : horizontal and vertical choices of the order of WENO scheme
 
    INTEGER ::   nadv             ! choice of the type of advection scheme
    !                             ! associated indices:
@@ -77,6 +80,7 @@ MODULE traadv
    INTEGER, PARAMETER ::   np_MUS     = 3   ! MUSCL scheme
    INTEGER, PARAMETER ::   np_UBS     = 4   ! 3rd order Upstream Biased Scheme
    INTEGER, PARAMETER ::   np_QCK     = 5   ! QUICK scheme
+   INTEGER, PARAMETER ::   np_WEN     = 6   ! WENO scheme
    !
    REAL(wp), PUBLIC            ::   r_stb_thres_tra_v  ! starting Courant number threshold for adaptive implicit vertical advection
    REAL(wp), PUBLIC            ::   r_stb_cstra_tra_v  ! stability constraint for tracer advection (vertical)
@@ -312,6 +316,8 @@ CONTAINS
             CALL tra_adv_ubs    ( kt, nit000, 'TRA', rDt, pau, pav, paw, Kbb, Kmm,      pts, jpts, Krhs, nn_ubs_v           )
          CASE ( np_QCK )                                 ! QUICKEST
             CALL tra_adv_qck    ( kt, nit000, 'TRA', rDt, pau, pav, paw, Kbb, Kmm,      pts, jpts, Krhs                     )
+         CASE ( np_WEN )                                 ! WENO
+            CALL tra_adv_weno   ( kt, nit000, 'TRA',      pau, pav, paw,      Kmm,      pts, jpts, Krhs, nn_weno_h, nn_weno_v )
          !
          END SELECT
          !
@@ -361,7 +367,8 @@ CONTAINS
          &                 ln_traadv_fct , nn_fct_h, nn_fct_v, nn_fct_imp,   &   ! FCT
          &                 ln_traadv_mus , ln_mus_ups,                       &   ! MUSCL
          &                 ln_traadv_ubs ,           nn_ubs_v,               &   ! UBS
-         &                 ln_traadv_qck                                         ! QCK
+         &                 ln_traadv_qck ,                                   &   ! QCK
+         &                 ln_traadv_weno, nn_weno_h, nn_weno_v                  ! WENO
       !!----------------------------------------------------------------------
       !
       !                                !==  Namelist  ==!
@@ -392,6 +399,9 @@ CONTAINS
          WRITE(numout,*) '      UBS scheme                                ln_traadv_ubs = ', ln_traadv_ubs
          WRITE(numout,*) '            vertical   2nd/4th order               nn_ubs_v   = ', nn_ubs_v
          WRITE(numout,*) '      QUICKEST scheme                           ln_traadv_qck = ', ln_traadv_qck
+         WRITE(numout,*) '      WENO scheme                              ln_traadv_weno = ', ln_traadv_weno
+         WRITE(numout,*) '            horizontal order                       nn_weno_h  = ', nn_weno_h
+         WRITE(numout,*) '            vertical   order                       nn_weno_v  = ', nn_weno_v
       ENDIF
       !
       !                                !==  Parameter control & set nadv ==!
@@ -402,6 +412,7 @@ CONTAINS
       IF( ln_traadv_mus ) THEN   ;   ioptio = ioptio + 1   ;   nadv = np_MUS      ;   ENDIF
       IF( ln_traadv_ubs ) THEN   ;   ioptio = ioptio + 1   ;   nadv = np_UBS      ;   ENDIF
       IF( ln_traadv_qck ) THEN   ;   ioptio = ioptio + 1   ;   nadv = np_QCK      ;   ENDIF
+      IF( ln_traadv_weno) THEN   ;   ioptio = ioptio + 1   ;   nadv = np_WEN      ;   ENDIF
       !
       IF( ioptio /= 1 )   CALL ctl_stop( 'tra_adv_init: Choose ONE advection option in namelist namtra_adv' )
       !
@@ -424,6 +435,9 @@ CONTAINS
          CALL ctl_warn( 'tra_adv_init: UBS scheme, only 2nd FCT scheme available on the vertical. It will be used' )
       ENDIF
       IF( ln_traadv_ubs .AND. ln_zad_Aimp )   CALL ctl_stop( 'tra_adv_init: UBS scheme, vertical implicit is not coded' )
+      IF( ln_traadv_weno .AND. ( nn_weno_h /= 3 .OR. nn_weno_v /= 3 ) ) THEN     ! WENO
+         CALL ctl_stop( 'tra_adv_init: WENO scheme, only 3rd order is available (higher orders need nn_hls > 2)' )
+      ENDIF
       IF( ln_isfcav ) THEN                                                       ! ice-shelf cavities
          IF(  ln_traadv_cen .AND. nn_cen_v == 4    .OR.   &                            ! NO 4th order with ISF
             & ln_traadv_fct .AND. nn_fct_v == 4   )   CALL ctl_stop( 'tra_adv_init: 4th order COMPACT scheme not allowed with ISF' )
@@ -449,6 +463,11 @@ CONTAINS
          r_stb_cstra_tra_v = pp_stb_cstra_tra_qck
          r_stb_thres_tra_v = pp_stb_thres_tra_qck
          !
+      ELSEIF ( ln_traadv_weno ) THEN
+         r_stb_cstra_tra_h = pp_stb_cstra_tra_weno
+         r_stb_cstra_tra_v = pp_stb_cstra_tra_weno
+         r_stb_thres_tra_v = pp_stb_thres_tra_weno
+         !
       ENDIF
       !
       !                                !==  Print the choice  ==!
@@ -464,6 +483,8 @@ CONTAINS
          CASE( np_MUS     )   ;   WRITE(numout,*) '   ==>>>   MUSCL    scheme is used'
          CASE( np_UBS     )   ;   WRITE(numout,*) '   ==>>>   UBS      scheme is used'
          CASE( np_QCK     )   ;   WRITE(numout,*) '   ==>>>   QUICKEST scheme is used'
+         CASE( np_WEN     )   ;   WRITE(numout,*) '   ==>>>   WENO     scheme is used. Horizontal order  : ', nn_weno_h, &
+            &                                                                        ' Vertical   order  : ', nn_weno_v
          END SELECT
       ENDIF
       !
