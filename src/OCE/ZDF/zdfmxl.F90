@@ -49,7 +49,7 @@ CONTAINS
       !!----------------------------------------------------------------------
       zdf_mxl_alloc = 0      ! set to zero if no array to be allocated
       IF( .NOT. ALLOCATED( nmln ) ) THEN
-         ALLOCATE( hmld(A2D(0)), nmln(A2D(2)), hmlp(A2D(2)), STAT= zdf_mxl_alloc )
+         ALLOCATE( hmld(A2D(0)), nmln(A2D(nn_hls)), hmlp(A2D(nn_hls)), STAT= zdf_mxl_alloc )
          !
          CALL mpp_sum ( 'zdfmxl', zdf_mxl_alloc )
          IF( zdf_mxl_alloc /= 0 )   CALL ctl_stop( 'STOP', 'zdf_mxl_alloc: failed to allocate arrays.' )

@@ -160,8 +160,8 @@ CONTAINS
       REAL(wp)                   , INTENT(in   ) ::   pCdmax   ! max drag value
       REAL(wp)                   , INTENT(in   ) ::   pz0      ! roughness
       REAL(wp)                   , INTENT(in   ) ::   pke0     ! background tidal KE
-      REAL(wp), DIMENSION(A2D(2)), INTENT(in   ) ::   pCd0     ! masked precomputed part of Cd0
-      REAL(wp), DIMENSION(A2D(2)), INTENT(inout) ::   pCdU     ! = - Cd*|U|   (t-points) [m/s]
+      REAL(wp), DIMENSION(A2D(nn_hls)), INTENT(in   ) ::   pCd0     ! masked precomputed part of Cd0
+      REAL(wp), DIMENSION(A2D(nn_hls)), INTENT(inout) ::   pCdU     ! = - Cd*|U|   (t-points) [m/s]
       !!
       INTEGER ::   ji, jj   ! dummy loop indices
       INTEGER ::   imk      ! local integers
@@ -205,8 +205,8 @@ CONTAINS
       !!
       !! ** Action  :   p_Cd   drag coefficient at t-point
       !!----------------------------------------------------------------------
-      REAL(wp), DIMENSION(A2D(2)), INTENT(in   ) ::  pCd0            ! masked precomputed part of the linear drag coefficient
-      REAL(wp), DIMENSION(A2D(2)), INTENT(inout) ::  pCdU            ! minus linear drag*|U| at t-points  [m/s]
+      REAL(wp), DIMENSION(A2D(nn_hls)), INTENT(in   ) ::  pCd0            ! masked precomputed part of the linear drag coefficient
+      REAL(wp), DIMENSION(A2D(nn_hls)), INTENT(inout) ::  pCdU            ! minus linear drag*|U| at t-points  [m/s]
       !
       INTEGER ::   ji, jj     ! dummy loop indexes
       !!----------------------------------------------------------------------

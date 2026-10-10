@@ -72,9 +72,9 @@ CONTAINS
       !!
       !! ** Method  : - blah blah
       !!----------------------------------------------------------------------
-      REAL(wp), DIMENSION(A2D(2)) :: ztmp
+      REAL(wp), DIMENSION(A2D(nn_hls)) :: ztmp
 #if defined key_si3
-      REAL(wp), DIMENSION(A2D(2)) :: zssh_lead_m    !    ocean surface (ssh_m) if ice is not embedded
+      REAL(wp), DIMENSION(A2D(nn_hls)) :: zssh_lead_m    !    ocean surface (ssh_m) if ice is not embedded
 #endif
       !
       ! compute necessary variable from the ice model
